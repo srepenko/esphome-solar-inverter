@@ -11,3 +11,4 @@ termostat/
 weather/
 
 *.yaml
+!ttn-inverter.yaml
