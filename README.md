@@ -10,7 +10,7 @@
 | RS232 TTL MAX3232 | Преобразувач рівнів для RS232 ↔ TTL | [Посилання](https://www.aliexpress.com/item/4000370825055.html) |
 | DC-DC перетворювач | Зниження напруги 12–24V → 5V 3A | [Посилання](https://www.aliexpress.com/item/1005007092498838.html) |
 
-https://github.com/srepenko/esphome-solar-inverter/blob/main/components/solar_inverter/img/0-02-05-2faf52d0b74a87d8961dcf2dfb64cb0b8cecf41dd8493fadb3c749a5221d0289_a2796bc580be1cd5.jpg
+<img src="https://github.com/srepenko/esphome-solar-inverter/blob/main/components/solar_inverter/img/0-02-05-2faf52d0b74a87d8961dcf2dfb64cb0b8cecf41dd8493fadb3c749a5221d0289_a2796bc580be1cd5.jpg" width="200"/>
 
 ## ⚙️ Призначення
 
