@@ -2,7 +2,7 @@ substitutions:
   name: ttn-inverter
   inv_id: ttn-inverter
   device_description: "Hybrid inverter via MAX communication"
-
+  external_components_source: github://srepenko/esphome-solar-inverter@main
   
 esphome:
   name: ${name}
@@ -20,10 +20,14 @@ esp32:
     type: arduino
 #    type: esp-idf
 
+#external_components:
+#  - source:
+#      type: local
+#      path: ./custom_components
+
 external_components:
-  - source:
-      type: local
-      path: ./custom_components
+  - source: ${external_components_source}
+    refresh: 0s
 
 
 # Enable logging
