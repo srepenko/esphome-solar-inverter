@@ -46,21 +46,37 @@
 ## 🧾 Приклад `ttn-inverter.yaml`
 
 ```yaml
-esphome:
+substitutions:
   name: ttn-inverter
-  includes:
-    - custom_components/solar_inverter
+  inv_id: ttn-inverter
+  device_description: "Hybrid inverter via MAX communication"
+  external_components_source: github://srepenko/esphome-solar-inverter@main
+
+esphome:
+  name: ${name}
+  comment: ${device_description}
+  min_version: 2024.6.0
+  platformio_options:
+    board_build.f_flash: 40000000L
+    board_build.flash_mode: dio
+    board_build.flash_size: 4MB
+
+esp32:
+  variant: ESP32C3
+  board: seeed_xiao_esp32c3
+  framework:
+    type: arduino
 ...
+
+external_components:
+  - source: ${external_components_source}
+    refresh: 0s
 
 uart:
   id: uart_bus
   tx_pin: GPIO21
   rx_pin: GPIO20
   baud_rate: 2400
-
-external_components:
-  - source: github://your-repo/solar_inverter
-    components: [solar_inverter]
 
 solar_inverter:
   uart_id: uart_bus
