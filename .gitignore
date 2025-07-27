@@ -9,3 +9,5 @@ external_components/
 fonts/
 termostat/
 weather/
+
+*.yaml
