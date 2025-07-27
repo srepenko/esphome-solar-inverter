@@ -11,7 +11,7 @@
 | DC-DC перетворювач | Зниження напруги 12–24V → 5V 3A | [Посилання](https://www.aliexpress.com/item/1005007092498838.html) |
 
 <img src="https://github.com/srepenko/esphome-solar-inverter/blob/main/components/solar_inverter/img/0-02-05-2faf52d0b74a87d8961dcf2dfb64cb0b8cecf41dd8493fadb3c749a5221d0289_a2796bc580be1cd5.jpg" width="200"/>
-
+<img src="https://github.com/srepenko/esphome-solar-inverter/blob/main/components/solar_inverter/img/0-02-05-604c42c1c0f341a8707158b955b12991a479010c7db5c2924b2f3e5be4a6bd9a_6c13d39f32c47bfc.jpg" width="200"/>
 ## ⚙️ Призначення
 
 Цей донгл дозволяє:
