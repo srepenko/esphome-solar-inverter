@@ -1,0 +1,52 @@
+esphome:
+  name: aj_sr04m_uart
+  friendly_name: AJ-SR04M UART
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+# It is highly recommended to use secrets
+wifi:
+  ssid: !secret wifi_ssid_ktm
+  password: !secret wifi_password_ktm
+
+# Example configuration entry
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Example configuration entry
+web_server:
+  port: 80
+
+uart:
+  id: uart_bus
+  tx_pin: GPIO43
+  rx_pin: GPIO44
+  baud_rate: 9600
+
+sensor:
+  - platform: "jsn_sr04t"
+#    model: aj_sr04m
+    name: "Livello Intercapedine"
+    id: livello_intercapedine
+    update_interval: 1s
+    filters:
+      - clamp:
+          min_value: 0.25
+          max_value: 3.0
+          ignore_out_of_range: true
+      - sliding_window_moving_average:
+          window_size: 3
+          send_every: 3 # TODO slow down to 10sec
+          send_first_at: 3
+#      - quantile:
+#          window_size: 10
+#          send_every: 50
+#          send_first_at: 1
+#          quantile: .9

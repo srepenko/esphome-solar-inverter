@@ -1,0 +1,521 @@
+substitutions:
+  settings:           "\U0000e900" # settings
+  thermostat:         "\U0000e901" # thermostat
+  lock:               "\U0000e902" # security, alarm
+  camera:             "\U0000e903" # camera
+  curtains:           "\U0000e904" # curtains
+  lights:             "\U0000e905" # lights
+  air_conditioner:    "\U0000e906" # air_conditioner
+  motion:             "\U0000e907" # motion, presence
+  heating:            "\U0000e908" # heating
+  alarm_off:          "\U0000e909" # alarm off
+  alarm_on:           "\U0000e90a" # alarm on
+  ha:                 "\U0000e90b" # home assistant
+  color_temp:         "\U0000e90c" # color_temp
+  ventilation:        "\U0000e90d" # ventilation
+  wifi_25:            "\U0000e91e" # wifi signal from 25% to 1%
+  wifi_50:            "\U0000e91f" # wifi signal from 50% to 25%
+  wifi_75:            "\U0000e910" # wifi signal from 75% to 50%
+  wifi_100:           "\U0000e911" # wifi signal from 100% to 75% or disable
+  humidity:           "\U0000e912" # humidity
+  co2:                "\U0000e913" # co2
+  tvoc:               "\U0000e914" # air quality
+  temperature:        "\U0000e915" # temperature
+  illumination:       "\U0000e916" # lux
+  empty:              "\U0000e917" # placeholder
+  vacuum_cleaner:     "\U0000e918" # vacuum cleaner
+  logo:               "\U0000e919" # logo
+
+globals:
+  - id: child_protection
+    type: bool
+    restore_value: true
+    initial_value: "false"
+
+  - id: language_select
+    type: bool
+    restore_value: true
+    initial_value: "false"
+
+  - id: display_timeout_global
+    type: int
+    restore_value: true
+    initial_value: "2"
+
+  - id: sensors_buzzer
+    type: bool
+    restore_value: true
+    initial_value: "false"
+    
+esphome:
+  name: ha-deck1
+  friendly_name: ha-deck1
+  # In this way, custom partitions can be configured and flushed (not over OTA!)
+  platformio_options:
+#    board_build.psram: "enabled"
+#    board_build.arduino.memory_type: qio_opi
+#    monitor_filters: esp32_disable_watchdog
+    board_build.partitions: "/config/huge_app.csv"
+#    board_upload.maximum_size: 3670016  # Размер прошивки 3.5 МБ
+  on_boot:
+      priority: -100  # low priority level
+      then:
+#        - if:
+#            condition:
+#              lambda: 'return id(relay_1);'
+#            then:
+#              - lvgl.button.update:
+#                  id: light_accent_btn
+#                  border_color: color_amber
+#                  shadow_color: color_amber
+#                  shadow_opa: COVER
+#                  shadow_spread: 2
+#                  shadow_width: 20
+#              - lvgl.label.update:
+#                  id: light_accent_label
+#                  text_color: color_amber
+#              - lvgl.label.update:
+#                  id: light_accent
+#                  text_color: color_amber
+#            else:
+#              - lvgl.button.update:
+#                  id: light_accent_btn
+#                  border_color: color_dark_gray
+#                  shadow_opa: TRANSP
+#              - lvgl.label.update:
+#                  id: light_accent_label
+#                  text_color: color_dark_gray
+#              - lvgl.label.update:
+#                  id: light_accent
+#                  text_color: color_dark_gray
+#        - if:
+#            condition:
+#              lambda: |-
+#                return id(child_protection) == true;
+#            then:
+#              - lvgl.widget.show: child_protection_placeholder
+#              - lvgl.label.update:
+#                  id: child_protection_status
+#                  text_color: color_green
+#            else:
+#              - lvgl.widget.hide: child_protection_placeholder
+#              - lvgl.label.update:
+#                  id: child_protection_status
+#                  text_color: color_dark_gray
+        - lambda: 'id(language_select_switch).state = id(language_select);'
+ #       - lambda: 'id(sensors_buzzer_switch).state = id(sensors_buzzer);'
+        - script.execute: language_select_script
+#        - lvgl.roller.update:
+#            id: display_timeout_roller
+#            selected_index: !lambda return id(display_timeout_global);
+
+        - delay: 1s
+        - lvgl.bar.update:
+            id: boot_bar
+            value: 40
+        - delay: 1s
+        - lvgl.bar.update:
+            id: boot_bar
+            value: 60
+        - delay: 1s
+        - lvgl.bar.update:
+            id: boot_bar
+            value: 80
+        - delay: 1s
+        - lvgl.widget.hide: boot_screen      
+
+esp32:
+  board:  esp-wrover-kit
+#  framework:
+#    type: arduino
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  on_client_connected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - lvgl.label.update: 
+              id: ha_status
+              text_color: color_blue
+
+  on_client_disconnected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - lvgl.label.update: 
+              id: ha_status
+              text_color: color_dark_gray
+  encryption:
+    key: "1Gmc4aMaBVuSgCp3neC/4XZruUtMLpnVcaKUMGwmkpE="
+
+ota:
+  - platform: esphome
+    password: "sashka2005"
+
+wifi:
+#  ssid: "KTM"
+#  password: "qawsedrf"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Kyiv
+    servers:
+      - ntp0.ntp-servers.net
+      - ntp1.ntp-servers.net
+      - ntp2.ntp-servers.net
+    on_time_sync:
+      - script.execute: time_update
+    on_time:
+      - minutes: '*'
+        seconds: 0
+        then:
+          - script.execute: time_update
+
+psram:
+#  mode: octal
+  speed: 80MHz
+
+#-------------------------------------------
+# Touchscreen gt911 i2c
+#-------------------------------------------
+i2c:
+  - id: bus_a
+    sda: GPIO18
+    scl: GPIO19
+#    frequency: 100kHz
+    
+touchscreen:
+  platform: ft63x6
+  id: my_touchscreen
+  calibration:
+    x_min: 0
+    x_max: 479
+    y_min: 107
+    y_max: 319
+  transform:
+    mirror_x: false
+    mirror_y: true
+    swap_xy: true
+  display: my_display
+  on_release:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - logger.log: "LVGL resuming"
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+            - light.turn_on: display_backlight
+
+  on_touch:
+    - logger.log:
+          format: Touch at (%d, %d)
+          args: [touch.x, touch.y]
+    - lambda: |-
+          ESP_LOGI("cal", "x=%d, y=%d, x_raw=%d, y_raw=%0d",
+              touch.x,
+              touch.y,
+              touch.x_raw,
+              touch.y_raw
+              );
+              
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  miso_pin: GPIO12
+
+output:
+  - platform: ledc
+    pin: GPIO23
+    id: gpio_backlight_pwm
+
+light:
+  - platform: monochromatic
+    id: display_backlight
+    output: gpio_backlight_pwm
+    name: "Display Backlight"
+    restore_mode: ALWAYS_ON
+
+number:
+  - platform: template
+    id: display_timeout
+    name: LVGL Screen timeout
+    optimistic: true
+    unit_of_measurement: "s"
+    initial_value: 180
+    restore_value: true
+    min_value: 60
+    max_value: 600
+    step: 5
+    mode: box
+
+sensor:
+  # WI-FI Signal
+  - platform: wifi_signal
+    id: wifi_signal_percent
+    update_interval: 30s
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    on_value: 
+      then:
+        - lvgl.label.update:
+            id: wifi_status
+            text_color: !lambda |-
+              if (id(wifi_signal_percent).state > 0) {
+              return lv_color_hex(0x00FF00);
+              }
+              return lv_color_hex(0x333333);
+            text: !lambda |-
+              if (id(wifi_signal_percent).state > 0 && id(wifi_signal_percent).state < 26) {
+              return "${wifi_25}";
+              } else if (id(wifi_signal_percent).state > 25 && id(wifi_signal_percent).state < 51) {
+              return "${wifi_50}";
+              } else if (id(wifi_signal_percent).state > 50 && id(wifi_signal_percent).state < 76) {
+              return "${wifi_75}";
+              } else if (id(wifi_signal_percent).state > 75) {
+              return "${wifi_100}";
+              }
+              return "${wifi_100}";
+
+  # Weather temperature
+  - platform: homeassistant
+    id: weather_temp
+    entity_id: sensor.backyard_temperature #weather.castle # Change the entity from your Home Assistant
+    on_value: 
+      then:
+        - lvgl.label.update:
+            id: weather_temperature
+            text:
+              format: "%.0f°"
+              args: [id(weather_temp).state]
+
+ # Temperature Home Sensor
+  - platform: homeassistant
+    id: sensor_temperature
+    entity_id: sensor.difference_temperature_in_home # Change the entity from your Home Assistant
+    on_value:
+      then:
+#        - lvgl.label.update:
+#            id: sensor_temperature_thermostat
+#            text:
+#              format: "%.1f°C"
+#              args: [id(sensor_temperature).state]
+              
+        - lvgl.label.update:
+            id: temperature_sensor
+            text:
+              format: "%.1f °C"
+              args: [id(sensor_temperature).state]
+
+        - lvgl.arc.update:
+            id: arc_sensor_temp
+            value: !lambda return x;
+
+  # Humidity Home Sensor
+  - platform: homeassistant
+    id: sensor_humidity
+    entity_id: sensor.difference_humidity_in_home # Change the entity from your Home Assistant
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: humidity_sensor
+            text:
+              format: "%.1f %%" 
+              args: [id(sensor_humidity).state]
+
+        - if:
+            condition:
+              lambda: 'return id(sensors_buzzer);'
+            then:
+              - if:
+                  condition:
+                    or:
+                      - lambda: 'return id(sensor_humidity).state > 80.0;'
+                      - lambda: 'return id(sensor_humidity).state < 20.0;'
+                  then:
+                    - homeassistant.service:
+                        service: switch.turn_on
+                        data:
+                          entity_id: switch.test_switch_buzzer
+                  else:
+                    - homeassistant.service:
+                        service: switch.turn_off
+                        data:
+                          entity_id: switch.test_switch_buzzer
+            else:
+              - homeassistant.service:
+                  service: switch.turn_off
+                  data:
+                    entity_id: switch.test_switch_buzzer
+
+  # Septic Sensor
+  - platform: homeassistant
+    id: status_septic
+    entity_id: sensor.septic_tank_distance
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: septic_status
+            text:
+              format: "%.1f cm"
+              args: [id(status_septic).state]
+
+
+text_sensor:
+  # Sun horizon sensor from Home Assistant #
+  - platform: homeassistant
+    id: sun_state
+    entity_id: sun.sun
+
+  # Weather state from Home Assistant #
+  - platform: homeassistant
+    id: weather_state
+    entity_id: weather.castle # Change the entity from your Home Assistant
+    on_value: 
+      then:
+        - lambda: |-
+            if (id(sun_state).state == "below_horizon" && (id(weather_state).state == "cloudy" || id(weather_state).state == "partlycloudy")) {
+            lv_obj_clear_flag(id(weather_partlycloudy_moon), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_partlycloudy_moon), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(sun_state).state != "below_horizon" && id(weather_state).state == "cloudy") {
+            lv_obj_clear_flag(id(weather_cloudy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_cloudy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(sun_state).state != "below_horizon" && id(weather_state).state == "partlycloudy") {
+            lv_obj_clear_flag(id(weather_partlycloudy_sun), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_partlycloudy_sun), LV_OBJ_FLAG_HIDDEN);
+            }
+            if ((id(sun_state).state != "below_horizon" && id(weather_state).state == "sunny") || (id(sun_state).state != "below_horizon" && id(weather_state).state == "clear-night")) {
+            lv_obj_clear_flag(id(weather_sunny), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_sunny), LV_OBJ_FLAG_HIDDEN);
+            }
+            if ((id(sun_state).state == "below_horizon" && id(weather_state).state == "sunny") || (id(sun_state).state == "below_horizon" && id(weather_state).state == "clear-night")) {
+            lv_obj_clear_flag(id(weather_clear_night), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_clear_night), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "rainy") {
+            lv_obj_clear_flag(id(weather_rainy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_rainy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "lightning-rainy") {
+            lv_obj_clear_flag(id(weather_lightning_rainy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_lightning_rainy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "lightning") {
+            lv_obj_clear_flag(id(weather_lightning), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_lightning), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "pouring") {
+            lv_obj_clear_flag(id(weather_pouring), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_pouring), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "snowy") {
+            lv_obj_clear_flag(id(weather_snowy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_snowy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "snowy-rainy") {
+            lv_obj_clear_flag(id(weather_snowy_rainy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_snowy_rainy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "fog") {
+            lv_obj_clear_flag(id(weather_fog), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_fog), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "hail") {
+            lv_obj_clear_flag(id(weather_hail), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_hail), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "windy") {
+            lv_obj_clear_flag(id(weather_windy), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_windy), LV_OBJ_FLAG_HIDDEN);
+            }
+            if (id(weather_state).state == "windy-variant") {
+            lv_obj_clear_flag(id(weather_windy_variant), LV_OBJ_FLAG_HIDDEN);
+            } else {
+            lv_obj_add_flag(id(weather_windy_variant), LV_OBJ_FLAG_HIDDEN);
+            }
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: ST7796
+    cs_pin: GPIO15
+    dc_pin: GPIO21
+    reset_pin: GPIO22
+    invert_colors: false
+    auto_clear_enabled: false
+    rotation: 90
+    dimensions:
+      width: 320
+      height: 480
+
+font: !include display/fonts.yaml
+script: !include display/script.yaml
+lvgl:  !include display/lvgl.yaml
+image: !include display/images.yaml
+
+# ----------------------------------------- #
+# -------------- COLORS ------------------- #
+# ----------------------------------------- #
+
+color:
+  - id: color_black
+    hex: 0d0d0d
+  - id: color_dark_gray
+    hex: 333333
+  - id: color_gray
+    hex: 666666
+  - id: color_white
+    hex: f2f0eb
+  - id: color_red
+    hex: ff0000
+  - id: color_crimson
+    hex: f5075c
+  - id: color_blue
+    hex: 2fc0ff
+  - id: color_yellow
+    hex: e7c12c
+  - id: color_amber
+    hex: f4a900
+  - id: color_mint
+    hex: 39d19c
+  - id: color_green
+    hex: 00ff00
+  - id: color_orange
+    hex: f07c40
+  - id: color_deep_orange
+    hex: ff6600
+  - id: color_violet
+    hex: 9670d6
+  - id: color_dark_blue
+    hex: 4867aa
+
+
+  
