@@ -20,14 +20,15 @@ esp32:
     type: arduino
 #    type: esp-idf
 
-#external_components:
-#  - source:
-#      type: local
-#      path: ./custom_components
-
 external_components:
-  - source: ${external_components_source}
-    refresh: 0s
+  - source:
+      type: local
+#      path: ./custom_components
+      path: /homeassistant/esphome/components
+
+#external_components:
+#  - source: ${external_components_source}
+#    refresh: 0s
 
 
 # Enable logging
