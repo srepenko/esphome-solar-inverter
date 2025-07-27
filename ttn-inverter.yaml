@@ -24,7 +24,8 @@ external_components:
   - source:
       type: local
       path: ./custom_components
-#    components: [ solar_ttn ]
+
+
 # Enable logging
 logger:
 #  level: WARN
