@@ -330,7 +330,10 @@ solar_inverter:
   #  battery_undervoltage:
   #    name: "29 Battery under voltage"
 
-  # Equalization (QBEQI / programs 32–39 typical Voltronic)
+  # Equalization (QBEQI / programs 32–39 typical Voltronic).
+  # Firmware polls QBEQI only if these keys exist. Persistent NAK disables that poll
+  # (this clone often has no equalization). Debug QBEQI still works. Comment the
+  # block out to hide dead HA entities after Install; leave it if LCD has 32–37.
   equalization_enable:
     name: "32 Battery equalization"
     web_server:

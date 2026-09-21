@@ -30,8 +30,11 @@ namespace solar_inverter {
 
 struct CommandEntry {
   std::string command;
-  uint32_t interval_ms;   // интервал в миллисекундах
-  uint32_t last_run_ms;   // время последнего запуска (millis())
+  uint32_t interval_ms;        // текущий интервал (может расти после NAK)
+  uint32_t last_run_ms;        // время последнего запуска (millis())
+  uint32_t base_interval_ms;   // интервал при успешном ответе
+  uint8_t consecutive_naks{0};
+  bool poll_disabled{false};   // persistent NAK — больше не опрашивать
 };
 
 struct PendingResult {
@@ -376,7 +379,7 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void add_poll_command(const std::string &cmd, uint32_t interval_ms);
   void send_priority_command(const std::string &cmd);
   void update_energy_history_();
-  static constexpr size_t MAX_PRIORITY_QUEUE = 16;
+  static constexpr size_t MAX_PRIORITY_QUEUE = 24;
  private:
   
   InverterSelect *select_;
@@ -401,8 +404,8 @@ class SolarInverter : public uart::UARTDevice, public Component {
   std::string rx_buffer_;
   bool receiving_{false};
   uint32_t last_send_{0};
+  uint32_t next_send_allowed_ms_{0};
   bool ready_{false};
-  bool ack_received_{false};
 
 
   //  ─── Ответы, ожидающие публикации ───
@@ -420,14 +423,29 @@ class SolarInverter : public uart::UARTDevice, public Component {
   bool qpiri_ready_{false};
   size_t qpiri_publish_index_{0};
 
-  //  ─── Таймауты ───
+  //  ─── Таймауты / лимиты loop() ───
   static constexpr uint32_t RESPONSE_TIMEOUT_MS = 3000;
+  static constexpr uint32_t INTER_COMMAND_GAP_MS = 120;
+  static constexpr uint32_t POST_ERROR_SETTLE_MS = 250;
+  static constexpr uint32_t MAX_LOOP_MS = 40;
+  static constexpr size_t MAX_RX_FRAME = 256;
+  static constexpr uint8_t QBEQI_NAK_DISABLE_AFTER = 3;
+  static constexpr uint32_t QPIRI_NAK_INTERVAL_MIN_MS = 15000;
+  static constexpr uint32_t QPIRI_NAK_INTERVAL_MAX_MS = 60000;
 
   //  ─── Внутренние методы ───
   void next_command_();
   void send_command(const std::string &cmd);
   void process_raw_response(const std::string &response);
   void process_result(const std::string &command, const std::string &payload);
+  void flush_rx_();
+  void finish_command_(uint32_t settle_ms);
+  void apply_nak_backoff_(const std::string &command);
+  void apply_inquiry_success_(const std::string &command);
+  bool payload_matches_command_(const std::string &command, const std::string &payload) const;
+  CommandEntry *find_poll_command_(const std::string &command);
+  bool has_qbeqi_entities_() const;
+  static bool looks_like_status_line_(const std::string &payload);
   
   //  Публикация частями
   void publish_next_qpigs_chunk_();

@@ -6,6 +6,7 @@
 #include "inverter_inquiry_button.h"
 #include "esphome/core/time.h"
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <set>
 #include <map>
@@ -22,23 +23,33 @@ static const char *const TAG = "solar_inverter";
 void SolarInverter::setup() {
   ESP_LOGI(TAG, "Ініціалізація інвертора...");
 
+  const uint32_t now = millis();
+  // last_run_ms = now → не слати всі inquiry одразу після ready_ (інакше черга
+  // QPIGS/QFLAG/QPIRI/QBEQI роз'їжджається і відповідь QPIGS чіпляється до QFLAG).
   poll_commands_ = {
-      {"QPIRI", 3000, 0},
-      {"QMOD",  3000, 0},
-      {"QPIGS", 1000, 0},
-      {"QFLAG", 3000, 0},
-      {"QPIWS", 1000, 0},
-      {"QBEQI", 3000, 0},
+      {"QPIGS", 1000, now, 1000, 0, false},
+      {"QMOD", 3000, now, 3000, 0, false},
+      {"QPIWS", 2000, now, 2000, 0, false},
+      {"QFLAG", 5000, now, 5000, 0, false},
+      {"QPIRI", 5000, now, 5000, 0, false},
   };
-  
+  if (this->has_qbeqi_entities_()) {
+    poll_commands_.push_back({"QBEQI", 15000, now, 15000, 0, false});
+    ESP_LOGI(TAG, "QBEQI polling enabled (equalization entities present)");
+  } else {
+    ESP_LOGI(TAG, "QBEQI polling skipped (no equalization entities in YAML)");
+  }
+
   send_priority_command("QPI");
   send_priority_command("QID");
-  
 
   ready_ = false;
   current_command_.clear();
   state_ = IDLE;
   poll_index_ = 0;
+  next_send_allowed_ms_ = 0;
+  receiving_ = false;
+  rx_buffer_.clear();
   
   this->pref_solar_total_ = global_preferences->make_preference<float>(0x6000);
   this->pref_inverter_total_ = global_preferences->make_preference<float>(0x6001);
@@ -60,68 +71,79 @@ void SolarInverter::setup() {
 // loop()
 // ────────────────────────────────────────────────────────────────
 void SolarInverter::loop() {
-  // ─── UART приём ───
+  const uint32_t loop_start = millis();
+
+  // ─── UART приём (один кадр за раз, без TX зсередини RX) ───
   while (available()) {
-    char c = read();
+    const char c = static_cast<char>(read());
     if (!receiving_) {
       if (c == '(') {
         receiving_ = true;
         rx_buffer_.clear();
         rx_buffer_ += c;
       }
-      continue;
+      // інакше — сміття / хвіст попередньої відповіді, відкидаємо
+    } else {
+      rx_buffer_ += c;
+      if (rx_buffer_.size() > MAX_RX_FRAME) {
+        ESP_LOGW(TAG, "UART RX overflow (%u), discarding", (unsigned) rx_buffer_.size());
+        rx_buffer_.clear();
+        receiving_ = false;
+      } else if (c == '\r') {
+        receiving_ = false;
+        this->process_raw_response(rx_buffer_);
+        rx_buffer_.clear();
+        break;  // не читати наступний кадр у цьому loop()
+      }
     }
-    rx_buffer_ += c;
-    if (c == '\r') {
-      receiving_ = false;
-      process_raw_response(rx_buffer_);
-      rx_buffer_.clear();
-    }
+    if (millis() - loop_start >= MAX_LOOP_MS)
+      return;
   }
 
   if (!ready_)
     return;
 
-  // ─── ACK обработан — следующая команда ───
-  if (ack_received_) {
-    ack_received_ = false;
-    next_command_();
-  }
-
-  // ─── Таймаут ответа ───
+  // ─── Таймаут відповіді: злити RX, пауза, НЕ слати наступну команду звідси ───
   if (state_ == WAITING_RESPONSE && millis() - last_send_ > RESPONSE_TIMEOUT_MS) {
     ESP_LOGW(TAG, "Таймаут для команди %s", current_command_.c_str());
     this->publish_debug_(current_command_, "", "TIMEOUT");
-    state_ = IDLE;
-    current_command_.clear();
-    next_command_();
+    this->flush_rx_();
+    this->finish_command_(POST_ERROR_SETTLE_MS);
   }
 
-  // ─── Обработка очереди результатов (парсинг) ───
+  if (millis() - loop_start >= MAX_LOOP_MS)
+    return;
+
+  // ─── Обробка черги результатів (парсинг) ───
   if (!pending_results_.empty()) {
-    auto &res = pending_results_.front();
-    process_result(res.command, res.payload);
+    const PendingResult res = pending_results_.front();
     pending_results_.pop();
+    this->process_result(res.command, res.payload);
   }
 
-  // ─── Публикация QPIGS по частям ───
+  if (millis() - loop_start >= MAX_LOOP_MS)
+    return;
+
+  // ─── Публікація по частинах (не більше одного chunk за прохід) ───
+  bool published_chunk = false;
   if (qpigs_ready_) {
-    publish_next_qpigs_chunk_();
+    this->publish_next_qpigs_chunk_();
+    published_chunk = true;
+  } else if (qbeqi_ready_) {
+    this->publish_next_qbeqi_chunk_();
+    published_chunk = true;
+  } else if (qpiri_ready_) {
+    this->publish_next_qpiri_chunk_();
+    published_chunk = true;
   }
-  // ─── Публикация QBEQI по частям ───
-  if (qbeqi_ready_) {
-    publish_next_qbeqi_chunk_();
-  }
-  // ─── Публикация QPIRI по частям ───
-  if (qpiri_ready_) {
-    publish_next_qpiri_chunk_();
-  }
-  // ─── Обновление интеграции энергии и истории ───
-  update_energy_history_();
 
-  // ─── Запуск новой команды, если можно ───
-  if (state_ == IDLE) {
-    next_command_();
+  if (!published_chunk && millis() - loop_start < MAX_LOOP_MS)
+    this->update_energy_history_();
+
+  // ─── Наступна команда тільки в IDLE і після паузи між кадрами ───
+  if (state_ == IDLE && static_cast<int32_t>(millis() - next_send_allowed_ms_) >= 0 &&
+      millis() - loop_start < MAX_LOOP_MS) {
+    this->next_command_();
   }
 }
 
@@ -277,16 +299,22 @@ void SolarInverter::send_priority_command(const std::string &cmd) {
 void SolarInverter::next_command_() {
   if (state_ != IDLE || !current_command_.empty())
     return;
+  if (static_cast<int32_t>(millis() - next_send_allowed_ms_) < 0)
+    return;
 
   if (!priority_commands_.empty()) {
     current_command_ = priority_commands_.front();
     priority_commands_.pop();
   } else {
     const size_t sz = poll_commands_.size();
-    uint32_t now = millis();
+    if (sz == 0)
+      return;
+    const uint32_t now = millis();
     for (size_t i = 0; i < sz; i++) {
       auto &cmd = poll_commands_[poll_index_];
       poll_index_ = (poll_index_ + 1) % sz;
+      if (cmd.poll_disabled)
+        continue;
       if (cmd.last_run_ms == 0 || now - cmd.last_run_ms >= cmd.interval_ms) {
         cmd.last_run_ms = now;
         current_command_ = cmd.command;
@@ -296,12 +324,132 @@ void SolarInverter::next_command_() {
   }
 
   if (!current_command_.empty()) {
-    send_command(current_command_);
+    this->send_command(current_command_);
     state_ = WAITING_RESPONSE;
   }
 }
 
+void SolarInverter::flush_rx_() {
+  uint16_t n = 0;
+  while (available()) {
+    (void) read();
+    if (++n > 512)
+      break;
+  }
+  if (n > 0)
+    ESP_LOGD(TAG, "Flushed %u leftover UART byte(s)", (unsigned) n);
+  rx_buffer_.clear();
+  receiving_ = false;
+}
+
+void SolarInverter::finish_command_(uint32_t settle_ms) {
+  state_ = IDLE;
+  current_command_.clear();
+  next_send_allowed_ms_ = millis() + settle_ms;
+}
+
+bool SolarInverter::has_qbeqi_entities_() const {
+  return equalization_enable_ != nullptr || equalization_voltage_ != nullptr ||
+         equalization_over_time_ != nullptr || equalization_time_ != nullptr ||
+         equalization_period_ != nullptr || equalization_active_ != nullptr ||
+         equalization_max_current_ != nullptr || equalization_elapsed_time_ != nullptr;
+}
+
+CommandEntry *SolarInverter::find_poll_command_(const std::string &command) {
+  for (auto &cmd : poll_commands_) {
+    if (cmd.command == command)
+      return &cmd;
+  }
+  return nullptr;
+}
+
+void SolarInverter::apply_nak_backoff_(const std::string &command) {
+  CommandEntry *entry = this->find_poll_command_(command);
+  if (entry == nullptr)
+    return;
+  if (entry->consecutive_naks < 255)
+    entry->consecutive_naks++;
+
+  if (command == "QBEQI") {
+    if (entry->consecutive_naks >= QBEQI_NAK_DISABLE_AFTER) {
+      entry->poll_disabled = true;
+      ESP_LOGW(TAG,
+               "QBEQI постійний NAK (%u) — опитування вимкнено (немає equalization?). "
+               "Debug QBEQI лишається; сутності 32–37 можна закоментувати в YAML.",
+               (unsigned) entry->consecutive_naks);
+    } else {
+      entry->interval_ms = 30000;
+      ESP_LOGW(TAG, "QBEQI NAK (%u/%u) — наступне опитування через 30 с",
+               (unsigned) entry->consecutive_naks, (unsigned) QBEQI_NAK_DISABLE_AFTER);
+    }
+    return;
+  }
+
+  if (command == "QPIRI") {
+    uint32_t next = entry->interval_ms < QPIRI_NAK_INTERVAL_MIN_MS ? QPIRI_NAK_INTERVAL_MIN_MS
+                                                                  : entry->interval_ms * 2;
+    if (next > QPIRI_NAK_INTERVAL_MAX_MS)
+      next = QPIRI_NAK_INTERVAL_MAX_MS;
+    entry->interval_ms = next;
+    ESP_LOGW(TAG, "QPIRI NAK — повтор через %u мс (програма 01), без флуду", (unsigned) next);
+  }
+}
+
+void SolarInverter::apply_inquiry_success_(const std::string &command) {
+  CommandEntry *entry = this->find_poll_command_(command);
+  if (entry == nullptr)
+    return;
+  entry->consecutive_naks = 0;
+  if (entry->base_interval_ms != 0)
+    entry->interval_ms = entry->base_interval_ms;
+  if (entry->poll_disabled) {
+    entry->poll_disabled = false;
+    ESP_LOGI(TAG, "%s succeeded — polling re-enabled", command.c_str());
+  }
+}
+
+bool SolarInverter::looks_like_status_line_(const std::string &payload) {
+  // QPIGS / QPIRI: "222.5 49.9 230.3 ..."
+  if (payload.size() < 8)
+    return false;
+  const unsigned char c0 = static_cast<unsigned char>(payload[0]);
+  if (!std::isdigit(c0) && payload[0] != '-' && payload[0] != ' ')
+    return false;
+  return payload.find(' ') != std::string::npos && payload.find('.') != std::string::npos;
+}
+
+bool SolarInverter::payload_matches_command_(const std::string &command,
+                                            const std::string &payload) const {
+  if (payload == "ACK" || payload == "NAK")
+    return true;
+
+  const bool status_line = looks_like_status_line_(payload);
+
+  if (command == "QFLAG") {
+    if (payload.empty() || status_line)
+      return false;
+    return payload[0] == 'E' || payload[0] == 'D';
+  }
+  if (command == "QMOD")
+    return payload.size() == 1 && std::isalpha(static_cast<unsigned char>(payload[0]));
+  if (command == "QPIWS")
+    return !payload.empty() && !status_line && (payload[0] == '0' || payload[0] == '1');
+  if (command == "QPIGS" || command == "QPIGS2" || command == "QPIRI")
+    return status_line;
+  if (command == "QBEQI") {
+    // "0 060 030 … 56.40 …" — перше поле 0/1, не напруга мережі QPIGS ("222.5").
+    const size_t sp = payload.find(' ');
+    if (sp == std::string::npos)
+      return false;
+    const std::string first = payload.substr(0, sp);
+    return first == "0" || first == "1";
+  }
+  return true;
+}
+
 void SolarInverter::send_command(const std::string &cmd) {
+  // Злити хвіст попередньої відповіді ДО TX, інакше він приліпиться до нової команди.
+  this->flush_rx_();
   uint16_t crc = calculate_crc(cmd);
   write_str(cmd.c_str());
   write_byte((crc >> 8) & 0xFF);
@@ -315,47 +463,51 @@ void SolarInverter::send_command(const std::string &cmd) {
 // Приём сырых ответов
 // ────────────────────────────────────────────────────────────────
 void SolarInverter::process_raw_response(const std::string &response) {
-  if (!check_crc(response)) {
-    ESP_LOGW(TAG, "CRC помилка для [%s]: %s", current_command_.c_str(), response.c_str());
-    std::string hex_string;
-    for (size_t i = 0; i < response.size(); i++) {
-      char buf[4];
-      snprintf(buf, sizeof(buf), "%02X ", static_cast<uint8_t>(response[i]));
-      hex_string += buf;
-    }
-    ESP_LOGI(TAG, "Response HEX: %s", hex_string.c_str());
-    this->publish_debug_(current_command_, hex_string, "CRC_ERROR");
-    state_ = IDLE;
-    current_command_.clear();
-    next_command_();
+  if (state_ != WAITING_RESPONSE || current_command_.empty()) {
+    ESP_LOGD(TAG, "Відкинуто зайвий UART-кадр (немає in-flight команди)");
     return;
   }
 
-  std::string data = response.substr(1, response.length() - 4); // снять '(' и CRC+CR
+  const std::string waiting = current_command_;
+
+  if (response.size() < 5) {
+    ESP_LOGW(TAG, "Короткий UART-кадр для [%s], відкинуто", waiting.c_str());
+    return;
+  }
+
+  if (!check_crc(response)) {
+    ESP_LOGW(TAG, "CRC помилка для [%s] (кадр відкинуто, чекаємо далі): %s", waiting.c_str(),
+             response.c_str());
+    // Не переходимо до наступної команди — це часто хвіст QPIGS, не відповідь QFLAG.
+    return;
+  }
+
+  std::string data = response.substr(1, response.length() - 4);  // зняти '(' і CRC+CR
+
+  if (!this->payload_matches_command_(waiting, data)) {
+    ESP_LOGW(TAG, "Відкинуто чужий кадр, очікуємо [%s]: %s", waiting.c_str(), data.c_str());
+    return;
+  }
 
   if (data == "ACK") {
-    ESP_LOGI(TAG, "ACK для [%s]", current_command_.c_str());
-    this->publish_debug_(current_command_, "(ACK", "ACK");
-    ack_received_ = true;
-    state_ = IDLE;
-    current_command_.clear();
+    ESP_LOGI(TAG, "ACK для [%s]", waiting.c_str());
+    this->publish_debug_(waiting, "(ACK", "ACK");
+    this->finish_command_(INTER_COMMAND_GAP_MS);
     return;
   }
   if (data == "NAK") {
-    ESP_LOGW(TAG, "NAK для [%s]", current_command_.c_str());
-    this->publish_debug_(current_command_, "(NAK", "NAK");
-    ack_received_ = true;
-    state_ = IDLE;
-    current_command_.clear();
+    ESP_LOGW(TAG, "NAK для [%s]", waiting.c_str());
+    this->publish_debug_(waiting, "(NAK", "NAK");
+    this->apply_nak_backoff_(waiting);
+    this->finish_command_(INTER_COMMAND_GAP_MS);
     return;
   }
 
-  ESP_LOGI(TAG, "DEBUG_INQUIRY [%s] -> %s", current_command_.c_str(), data.c_str());
-  this->publish_debug_(current_command_, data, "DATA");
-
-  pending_results_.push({current_command_, data});
-  state_ = IDLE;
-  current_command_.clear();
+  ESP_LOGI(TAG, "DEBUG_INQUIRY [%s] -> %s", waiting.c_str(), data.c_str());
+  this->publish_debug_(waiting, data, "DATA");
+  this->apply_inquiry_success_(waiting);
+  pending_results_.push({waiting, data});
+  this->finish_command_(INTER_COMMAND_GAP_MS);
 }
 
 
@@ -641,6 +793,10 @@ void SolarInverter::publish_next_qpiri_chunk_() {
 // Разбор  QMOD<cr>: Device Mode inquiry 
 // ────────────────────────────────────────────────────────────────
 void SolarInverter::process_qmod_(const std::string &payload) {
+  if (payload.empty()) {
+    ESP_LOGW(TAG, "Empty QMOD payload");
+    return;
+  }
   char code = payload[0];
   static const std::map<char, const char *> mode_names{
       {'P', "Power On"}, {'S', "Standby"},   {'L', "Line"},
@@ -666,6 +822,11 @@ void SolarInverter::process_qmod_(const std::string &payload) {
 void SolarInverter::process_qflag_(const std::string &payload) {
   if (payload.empty()) {
     ESP_LOGW(TAG, "Empty QFLAG payload");
+    return;
+  }
+  // Не парсити рядок QPIGS ("222.5 49.9 …") як прапорці.
+  if (looks_like_status_line_(payload) || (payload[0] != 'E' && payload[0] != 'D')) {
+    ESP_LOGW(TAG, "Ignoring non-QFLAG payload: %s", payload.c_str());
     return;
   }
 
@@ -857,7 +1018,8 @@ bool SolarInverter::safe_stof(const std::string &s, float &v) {
 void SolarInverter::set_flag(char flag, bool enabled) {
   std::string cmd = (enabled ? "PE" : "PD");
   cmd += flag;
-  send_command(cmd);
+  this->send_priority_command(cmd);
+  this->send_priority_command("QFLAG");
 }
 
 
