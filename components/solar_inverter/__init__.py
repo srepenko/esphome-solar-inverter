@@ -62,6 +62,13 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
     cv.Optional('serial_number'): text_sensor.text_sensor_schema(
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    # Identity: QVFW (DSP/main), QVFW2 (display; often NAK), QGMN (general model)
+    cv.Optional('firmware_version'): text_sensor.text_sensor_schema(
+        icon="mdi:chip", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional('firmware_version_2'): text_sensor.text_sensor_schema(
+        icon="mdi:chip", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional('general_model_name'): text_sensor.text_sensor_schema(
+        icon="mdi:tag-text", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
     cv.Optional('eeprom_version_text'): text_sensor.text_sensor_schema(
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
     cv.Optional('charging_mode_text'): text_sensor.text_sensor_schema(),
@@ -204,6 +211,8 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional("debug_query_qmchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_query_qmuchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_dump_inquiries"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    # One press → queue QPI+QID+QVFW+QVFW2+QGMN (boot-equivalent, no poll flood).
+    cv.Optional("refresh_identity"): INVERTER_DEBUG_BUTTON_SCHEMA,
     # SET probes: NN (0–99) + POP / PCP buttons. Replaces debug_probe_pop00…03 / pcp00…03.
     cv.Optional("debug_probe_nn"): INVERTER_PROBE_NN_SCHEMA,
     cv.Optional("debug_probe_pop"): INVERTER_DEBUG_BUTTON_SCHEMA,
@@ -255,6 +264,9 @@ async def to_code(config):
         'device_mode_text': 'set_device_mode_text',
         'protocol_id': 'set_protocol_id_sensor',
         'serial_number': 'set_serial_number_sensor',
+        'firmware_version': 'set_firmware_version_sensor',
+        'firmware_version_2': 'set_firmware_version_2_sensor',
+        'general_model_name': 'set_general_model_name_sensor',
         'eeprom_version_text': 'set_eeprom_version_text',
         'charging_mode_text': 'set_charging_mode_text_sensor',
         'warning_status_text': 'set_warning_status_text_sensor',
@@ -436,6 +448,11 @@ async def to_code(config):
         cg.add(num.set_parent(var))
         cg.add(num.set_local_only(True))
         cg.add(var.set_debug_probe_nn(num))
+
+    if "refresh_identity" in config:
+        btn = await button.new_button(config["refresh_identity"])
+        cg.add(btn.set_parent(var))
+        cg.add(btn.set_refresh_identity(True))
 
     debug_buttons = {
         'debug_query_qpi': ('QPI', False, False, ''),

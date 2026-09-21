@@ -64,6 +64,9 @@ class SolarInverter : public uart::UARTDevice, public Component {
    // Сеттеры для конфигурационных сенсоров
    void set_protocol_id_sensor(text_sensor::TextSensor *sens) { protocol_id_sensor_ = sens; }
    void set_serial_number_sensor(text_sensor::TextSensor *sens) { serial_number_sensor_ = sens; }
+   void set_firmware_version_sensor(text_sensor::TextSensor *sens) { firmware_version_sensor_ = sens; }
+   void set_firmware_version_2_sensor(text_sensor::TextSensor *sens) { firmware_version_2_sensor_ = sens; }
+   void set_general_model_name_sensor(text_sensor::TextSensor *sens) { general_model_name_sensor_ = sens; }
  
    // Сеттеры для QMOD
    void set_device_mode_sensor(text_sensor::TextSensor *sens) { device_mode_sensor_ = sens; }
@@ -151,10 +154,13 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void set_equalization_elapsed_time(sensor::Sensor *s) { equalization_elapsed_time_ = s; }
 
   // ────────────────────────────────────────────────────────────
-  // ── Сенсоры конфигурации (QPI, QID, QMOD, …)               ──
+  // ── Сенсоры конфигурации (QPI, QID, QVFW, QMOD, …)          ──
   // ────────────────────────────────────────────────────────────
-  text_sensor::TextSensor *protocol_id_sensor_{nullptr};
-  text_sensor::TextSensor *serial_number_sensor_{nullptr};
+  text_sensor::TextSensor *protocol_id_sensor_{nullptr};       // QPI
+  text_sensor::TextSensor *serial_number_sensor_{nullptr};     // QID
+  text_sensor::TextSensor *firmware_version_sensor_{nullptr};  // QVFW (main/DSP)
+  text_sensor::TextSensor *firmware_version_2_sensor_{nullptr}; // QVFW2 (display; often NAK)
+  text_sensor::TextSensor *general_model_name_sensor_{nullptr}; // QGMN
   text_sensor::TextSensor *device_mode_sensor_{nullptr};
   text_sensor::TextSensor *device_mode_text_{nullptr};
 
@@ -286,6 +292,8 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   void request_debug_inquiry(const std::string &cmd);
   void request_debug_dump();
+  // Queue QPI+QID+QVFW+QVFW2+QGMN once (priority queue, no poller flood).
+  void request_identity_refresh();
   // One safe SET (POP## / PCP##, ## = 00–99) via UART priority queue, then QPIRI+QFLAG.
   // Immediate ACK/NAK stays on debug_last_*; follow-up inquiries do not overwrite them.
   void request_set_probe(const std::string &cmd);
@@ -514,6 +522,8 @@ class SolarInverter : public uart::UARTDevice, public Component {
   static bool is_safe_inquiry_(const std::string &cmd);
   static bool is_safe_set_probe_(const std::string &cmd);
   void publish_debug_(const std::string &command, const std::string &response, const std::string &result);
+  void publish_identity_(const std::string &command, const std::string &value);
+  static bool is_identity_inquiry_(const std::string &command);
   void publish_output_source_priority_(const std::string &raw_code);
   void finish_set_probe_(const std::string &command, const std::string &response,
                          const std::string &result, bool queue_followups);

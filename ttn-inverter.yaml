@@ -93,11 +93,22 @@ solar_inverter:
   id: solar_inv
   uart_id: uart_bus
 
-  # ── Идентификация (diagnostic) ──
+  # ── Идентификация / Identity (diagnostic, always visible) ──
+  # Boot queues QPI+QID+QVFW+QVFW2+QGMN; Refresh Identity re-queues the same five.
+  # QVFW2 often NAK on clones without a separate display FW — sensor shows "NAK".
+  # Имена EN (+ код inquiry) → стабильные entity id; смысл по-русски — в settings-ux.md.
   protocol_id:
     name: "Protocol ID"
   serial_number:
     name: "Serial Number"
+  firmware_version:
+    name: "Firmware DSP (QVFW)"
+  firmware_version_2:
+    name: "Firmware Display (QVFW2)"
+  general_model_name:
+    name: "General Model (QGMN)"
+  refresh_identity:
+    name: "Refresh Identity"
   eeprom_version_text:
     name: "EEPROM version"
 

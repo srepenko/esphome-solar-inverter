@@ -44,6 +44,9 @@ void SolarInverter::setup() {
 
   send_priority_command("QPI");
   send_priority_command("QID");
+  send_priority_command("QVFW");
+  send_priority_command("QVFW2");
+  send_priority_command("QGMN");
 
   ready_ = false;
   current_command_.clear();
@@ -127,6 +130,8 @@ void SolarInverter::loop() {
       this->finish_set_probe_(current_command_, "", "TIMEOUT", true);
     } else {
       this->publish_debug_(current_command_, "", "TIMEOUT");
+      if (this->is_identity_inquiry_(current_command_))
+        this->publish_identity_(current_command_, "TIMEOUT");
       this->apply_nak_backoff_(current_command_);
       this->flush_rx_();
       this->finish_command_(POST_ERROR_SETTLE_MS);
@@ -621,6 +626,8 @@ void SolarInverter::process_raw_response(const std::string &response) {
       return;
     }
     this->publish_debug_(waiting, "(NAK", "NAK");
+    if (this->is_identity_inquiry_(waiting))
+      this->publish_identity_(waiting, "NAK");
     this->apply_nak_backoff_(waiting);
     this->finish_command_(POST_ERROR_SETTLE_MS);
     return;
@@ -658,9 +665,15 @@ void SolarInverter::process_result(const std::string &command, const std::string
     if (this->warning_status_text_sensor_)
       this->warning_status_text_sensor_->publish_state(decode_qpiws_(payload));
   }else if (command == "QPI") {
-    if (protocol_id_sensor_) protocol_id_sensor_->publish_state(payload);
+    this->publish_identity_("QPI", payload);
   } else if (command == "QID") {
-    if (serial_number_sensor_) serial_number_sensor_->publish_state(payload);
+    this->publish_identity_("QID", payload);
+  } else if (command == "QVFW") {
+    this->publish_identity_("QVFW", payload);
+  } else if (command == "QVFW2") {
+    this->publish_identity_("QVFW2", payload);
+  } else if (command == "QGMN") {
+    this->publish_identity_("QGMN", payload);
   } else {
     ESP_LOGD(TAG, "Невідома відповідь [%s]: %s", command.c_str(), payload.c_str());
   }
@@ -1196,7 +1209,9 @@ void InverterInquiryButton::press_action() {
       this->parent_->request_set_probe_with_nn(this->set_probe_prefix_);
     else
       this->parent_->request_set_probe(this->cmd_);
-  } else if (this->dump_all_)
+  } else if (this->refresh_identity_)
+    this->parent_->request_identity_refresh();
+  else if (this->dump_all_)
     this->parent_->request_debug_dump();
   else
     this->parent_->request_debug_inquiry(this->cmd_);
@@ -1355,6 +1370,39 @@ void SolarInverter::request_debug_dump() {
   ESP_LOGI(TAG, "DEBUG_INQUIRY dump %u safe inquiries", (unsigned) (sizeof(kDump) / sizeof(kDump[0])));
   for (const char *cmd : kDump)
     this->request_debug_inquiry(cmd);
+}
+
+void SolarInverter::request_identity_refresh() {
+  // Same five inquiries as boot; priority queue (one UART in-flight) — no poll flood.
+  static const char *const kIdentity[] = {"QPI", "QID", "QVFW", "QVFW2", "QGMN"};
+  ESP_LOGI(TAG, "IDENTITY refresh queue %u inquiries",
+           (unsigned) (sizeof(kIdentity) / sizeof(kIdentity[0])));
+  for (const char *cmd : kIdentity)
+    this->send_priority_command(cmd);
+}
+
+bool SolarInverter::is_identity_inquiry_(const std::string &command) {
+  return command == "QPI" || command == "QID" || command == "QVFW" || command == "QVFW2" ||
+         command == "QGMN";
+}
+
+void SolarInverter::publish_identity_(const std::string &command, const std::string &value) {
+  if (command == "QPI") {
+    if (this->protocol_id_sensor_)
+      this->protocol_id_sensor_->publish_state(value);
+  } else if (command == "QID") {
+    if (this->serial_number_sensor_)
+      this->serial_number_sensor_->publish_state(value);
+  } else if (command == "QVFW") {
+    if (this->firmware_version_sensor_)
+      this->firmware_version_sensor_->publish_state(value);
+  } else if (command == "QVFW2") {
+    if (this->firmware_version_2_sensor_)
+      this->firmware_version_2_sensor_->publish_state(value);
+  } else if (command == "QGMN") {
+    if (this->general_model_name_sensor_)
+      this->general_model_name_sensor_->publish_state(value);
+  }
 }
 
 void SolarInverter::publish_output_source_priority_(const std::string &raw_code) {
