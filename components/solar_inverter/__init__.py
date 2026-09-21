@@ -29,6 +29,12 @@ InverterSelect = solar_inverter_ns.class_("InverterSelect", select.Select)
 InverterSwitch = solar_inverter_ns.class_("InverterSwitch", switch.Switch)
 InverterNumber = solar_inverter_ns.class_("InverterNumber", number.Number)
 
+INVERTER_SWITCH_SCHEMA = lambda icon: switch.switch_schema(InverterSwitch, icon=icon)
+INVERTER_NUMBER_SCHEMA = number.number_schema(InverterNumber).extend({
+    cv.GenerateID("parent"): cv.use_id(SolarInverter),
+    cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+})
+
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(SolarInverter),
@@ -99,54 +105,18 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional("device_mode_text"): text_sensor.text_sensor_schema(icon="mdi:power-settings"),
 
     # switches (qflag)
-   cv.Optional("buzzer_control"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:volume-high"): cv.icon,
-    }),
-    cv.Optional("overload_bypass"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:flash-alert"): cv.icon,
-    }),
-    cv.Optional("display_escape_to_default_page"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:monitor"): cv.icon,
-    }),
-    cv.Optional("overload_restart"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:restart"): cv.icon,
-    }),
-    cv.Optional("over_temperature_restart"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:thermometer-alert"): cv.icon,
-    }),
-    cv.Optional("backlight_control"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:brightness-5"): cv.icon,
-    }),
-    cv.Optional("alarm_primary_source_interrupt"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:bell-alert"): cv.icon,
-    }),
-    cv.Optional("fault_code_record"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:file-document-alert"): cv.icon,
-    }),
-    cv.Optional("power_saving"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:power-plug-off"): cv.icon,  # Значок энергосбережения/выключения питания
-    }),
-    cv.Optional("data_log_popup"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:chart-box-outline"): cv.icon,  # Значок всплывающего окна журнала / графика
-    }),
-    cv.Optional("grid_charge_enable"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:server-network"): cv.icon,
-    }),
-    cv.Optional("solar_feed_to_grid"): switch.SWITCH_SCHEMA.extend({
-        cv.Optional(CONF_ID): cv.declare_id(InverterSwitch),
-        cv.Optional("icon", default="mdi:database-alert"): cv.icon,
-    }),
+    cv.Optional("buzzer_control"): INVERTER_SWITCH_SCHEMA("mdi:volume-high"),
+    cv.Optional("overload_bypass"): INVERTER_SWITCH_SCHEMA("mdi:flash-alert"),
+    cv.Optional("display_escape_to_default_page"): INVERTER_SWITCH_SCHEMA("mdi:monitor"),
+    cv.Optional("overload_restart"): INVERTER_SWITCH_SCHEMA("mdi:restart"),
+    cv.Optional("over_temperature_restart"): INVERTER_SWITCH_SCHEMA("mdi:thermometer-alert"),
+    cv.Optional("backlight_control"): INVERTER_SWITCH_SCHEMA("mdi:brightness-5"),
+    cv.Optional("alarm_primary_source_interrupt"): INVERTER_SWITCH_SCHEMA("mdi:bell-alert"),
+    cv.Optional("fault_code_record"): INVERTER_SWITCH_SCHEMA("mdi:file-document-alert"),
+    cv.Optional("power_saving"): INVERTER_SWITCH_SCHEMA("mdi:power-plug-off"),  # Значок энергосбережения/выключения питания
+    cv.Optional("data_log_popup"): INVERTER_SWITCH_SCHEMA("mdi:chart-box-outline"),  # Значок всплывающего окна журнала / графика
+    cv.Optional("grid_charge_enable"): INVERTER_SWITCH_SCHEMA("mdi:server-network"),
+    cv.Optional("solar_feed_to_grid"): INVERTER_SWITCH_SCHEMA("mdi:database-alert"),
 
 
     # energy sensors history
@@ -178,62 +148,22 @@ CONFIG_SCHEMA = cv.Schema({
     #QPIWS
     cv.Optional('warning_status_text'): text_sensor.text_sensor_schema(),
 
-    cv.Optional("equalization_enable"): select.SELECT_SCHEMA.extend({cv.GenerateID(): cv.declare_id(InverterSelect),}),
-    cv.Optional("equalization_active"): select.SELECT_SCHEMA.extend({cv.GenerateID(): cv.declare_id(InverterSelect),}),
-    cv.Optional("equalization_voltage"):  number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("equalization_time"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("equalization_over_time"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("equalization_period"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
+    cv.Optional("equalization_enable"): select.select_schema(InverterSelect),
+    cv.Optional("equalization_active"): select.select_schema(InverterSelect),
+    cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("equalization_period"): INVERTER_NUMBER_SCHEMA,
     cv.Optional("equalization_max_current"): sensor.sensor_schema(unit_of_measurement="A", accuracy_decimals=0),
     cv.Optional("equalization_elapsed_time"): sensor.sensor_schema(unit_of_measurement="min", accuracy_decimals=0),
     
     #QPIWS
-    cv.Optional("battery_recharge_voltage"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("battery_redischarge_voltage"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("max_charging_current"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("max_ac_charging_current"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("ac_output_rating_frequency"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
-    cv.Optional("ac_output_rating_voltage"):   number.NUMBER_SCHEMA.extend({
-        cv.GenerateID(): cv.declare_id(InverterNumber),
-        cv.GenerateID("parent"): cv.use_id(SolarInverter),
-        cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
-    }),
+    cv.Optional("battery_recharge_voltage"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("battery_redischarge_voltage"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("max_charging_current"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("max_ac_charging_current"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("ac_output_rating_frequency"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("ac_output_rating_voltage"): INVERTER_NUMBER_SCHEMA,
 
 }).extend(cv.COMPONENT_SCHEMA)
 
