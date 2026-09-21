@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <sstream>
 #include <set>
+#include <map>
 #include "esphome/core/preferences.h"
 
 namespace esphome {

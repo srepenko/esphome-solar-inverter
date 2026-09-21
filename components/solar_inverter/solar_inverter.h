@@ -21,6 +21,7 @@
 #include <queue>
 #include <vector>
 #include <string>
+#include <map>
 
 namespace esphome {
 namespace solar_inverter {
