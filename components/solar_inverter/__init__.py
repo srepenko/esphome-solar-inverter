@@ -198,6 +198,15 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional("debug_query_qmchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_query_qmuchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_dump_inquiries"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    # Safe one-shot SET probes (POP program 01 / PCP program 16). Not wired to UtS select.
+    cv.Optional("debug_probe_pop00"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pop01"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pop02"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pop03"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pcp00"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pcp01"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pcp02"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pcp03"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA("V"),
     cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA("min"),
     cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA("min"),
@@ -336,8 +345,8 @@ async def to_code(config):
             'command_status': "QBEQI",
             'request_index': 9,
         },
-        # QPIRI field 16 (program 01). MAX POP is only 00/01/02.
-        # Value 3 on main is SolarBatUtility* (LCD UtS). Do not send POP03.
+        # QPIRI field 16 (program 01). Official §3.12 POP is only 00/01/02.
+        # Value 3 on main is SolarBatUtility* (LCD UtS). Do not bind UtS to POP03.
         'output_source_priority': {
             'options': [
                 "USB — сеть сначала",
@@ -419,30 +428,40 @@ async def to_code(config):
                 cg.add(getattr(var, setter_name)(num))
 
     debug_buttons = {
-        'debug_query_qpi': ('QPI', False),
-        'debug_query_qid': ('QID', False),
-        'debug_query_qvfw': ('QVFW', False),
-        'debug_query_qvfw2': ('QVFW2', False),
-        'debug_query_qmn': ('QMN', False),
-        'debug_query_qgmn': ('QGMN', False),
-        'debug_query_qmod': ('QMOD', False),
-        'debug_query_qflag': ('QFLAG', False),
-        'debug_query_qpiri': ('QPIRI', False),
-        'debug_query_qpigs': ('QPIGS', False),
-        'debug_query_qpiws': ('QPIWS', False),
-        'debug_query_qbeqi': ('QBEQI', False),
-        'debug_query_qdi': ('QDI', False),
-        'debug_query_qoppt': ('QOPPT', False),
-        'debug_query_qmchgcr': ('QMCHGCR', False),
-        'debug_query_qmuchgcr': ('QMUCHGCR', False),
-        'debug_dump_inquiries': ('', True),
+        'debug_query_qpi': ('QPI', False, False),
+        'debug_query_qid': ('QID', False, False),
+        'debug_query_qvfw': ('QVFW', False, False),
+        'debug_query_qvfw2': ('QVFW2', False, False),
+        'debug_query_qmn': ('QMN', False, False),
+        'debug_query_qgmn': ('QGMN', False, False),
+        'debug_query_qmod': ('QMOD', False, False),
+        'debug_query_qflag': ('QFLAG', False, False),
+        'debug_query_qpiri': ('QPIRI', False, False),
+        'debug_query_qpigs': ('QPIGS', False, False),
+        'debug_query_qpiws': ('QPIWS', False, False),
+        'debug_query_qbeqi': ('QBEQI', False, False),
+        'debug_query_qdi': ('QDI', False, False),
+        'debug_query_qoppt': ('QOPPT', False, False),
+        'debug_query_qmchgcr': ('QMCHGCR', False, False),
+        'debug_query_qmuchgcr': ('QMUCHGCR', False, False),
+        'debug_dump_inquiries': ('', True, False),
+        # SET probes: one POP/PCP at a time via UART queue; auto QPIRI+QFLAG after ACK/NAK.
+        'debug_probe_pop00': ('POP00', False, True),
+        'debug_probe_pop01': ('POP01', False, True),
+        'debug_probe_pop02': ('POP02', False, True),
+        'debug_probe_pop03': ('POP03', False, True),
+        'debug_probe_pcp00': ('PCP00', False, True),
+        'debug_probe_pcp01': ('PCP01', False, True),
+        'debug_probe_pcp02': ('PCP02', False, True),
+        'debug_probe_pcp03': ('PCP03', False, True),
     }
-    for key, (cmd, dump_all) in debug_buttons.items():
+    for key, (cmd, dump_all, set_probe) in debug_buttons.items():
         if key in config:
             btn = await button.new_button(config[key])
             cg.add(btn.set_parent(var))
             cg.add(btn.set_inquiry_command(cmd))
             cg.add(btn.set_dump_all(dump_all))
+            cg.add(btn.set_set_probe(set_probe))
 
 
 

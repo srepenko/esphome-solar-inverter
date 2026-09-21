@@ -286,6 +286,8 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   void request_debug_inquiry(const std::string &cmd);
   void request_debug_dump();
+  // One safe SET (POP00–03 / PCP00–03) via UART priority queue, then QPIRI+QFLAG.
+  void request_set_probe(const std::string &cmd);
   void set_machine_type(InverterSelect *s) { machine_type_ = s; }
   void set_topology(InverterSelect *s) { topology_ = s; }
   void set_output_mode(InverterSelect *s) { output_mode_ = s; }
@@ -427,11 +429,18 @@ class SolarInverter : public uart::UARTDevice, public Component {
   static constexpr uint32_t RESPONSE_TIMEOUT_MS = 3000;
   static constexpr uint32_t INTER_COMMAND_GAP_MS = 120;
   static constexpr uint32_t POST_ERROR_SETTLE_MS = 250;
+  static constexpr uint32_t POST_SET_PROBE_SETTLE_MS = 600;
+  static constexpr uint32_t SET_PROBE_COOLDOWN_MS = 2000;
   static constexpr uint32_t MAX_LOOP_MS = 40;
   static constexpr size_t MAX_RX_FRAME = 256;
   static constexpr uint8_t QBEQI_NAK_DISABLE_AFTER = 3;
   static constexpr uint32_t QPIRI_NAK_INTERVAL_MIN_MS = 15000;
   static constexpr uint32_t QPIRI_NAK_INTERVAL_MAX_MS = 60000;
+
+  // One SET probe at a time (no POP/PCP flood).
+  bool set_probe_pending_{false};
+  std::string set_probe_command_;
+  uint32_t last_set_probe_done_ms_{0};
 
   //  ─── Внутренние методы ───
   void next_command_();
@@ -466,8 +475,11 @@ class SolarInverter : public uart::UARTDevice, public Component {
   static std::vector<std::string> split_string(const std::string &s, char delimiter);
   static bool safe_stof(const std::string &s, float &value);
   static bool is_safe_inquiry_(const std::string &cmd);
+  static bool is_safe_set_probe_(const std::string &cmd);
   void publish_debug_(const std::string &command, const std::string &response, const std::string &result);
   void publish_output_source_priority_(const std::string &raw_code);
+  void finish_set_probe_(const std::string &command, const std::string &response,
+                         const std::string &result, bool queue_followups);
  protected:
   std::map<int, InverterSelect*> inverter_selects_by_index_;
 };

@@ -188,7 +188,7 @@ solar_inverter:
 
   # ── Настройки в порядке программ LCD / мануала (entity_category: config) ──
   # 01 Output source priority. HA: select.ttn_inverter_output_source_priority
-  # SET: POP00 USB, POP01 SUB, POP02 SBU. QPIRI 3 = UtS на LCD; POP03 НЕ шлём (нет в MAX).
+  # SET: POP00 USB, POP01 SUB, POP02 SBU (§3.12 only). QPIRI 3 = UtS; POP03 не в select (probe only).
   output_source_priority:
     name: "01 Output source priority"
     web_server:
@@ -417,7 +417,7 @@ solar_inverter:
   #  max_discharging_current:
   #    name: "Max discharging current"
 
-  # ── Debug: только inquiry, без SET. Копируйте text sensors + лог ESPHome ──
+  # ── Debug: inquiry + safe SET probes (POP/PCP 00–03 only). Copy text sensors + лог ──
   debug_last_command:
     name: "Debug last command"
     web_server:
@@ -470,4 +470,48 @@ solar_inverter:
     name: "Debug QMCHGCR"
   debug_query_qmuchgcr:
     name: "Debug QMUCHGCR"
+
+  # Safe SET probes (one at a time, UART queue, ~2s cooldown). After ACK/NAK → QPIRI + QFLAG.
+  # POP §3.12 = program 01 output (00/01/02 known good; POP03 probe-only, expect NAK, never bind UtS).
+  # PCP §3.10 = program 16 charger priority probes (not UtS). POP11/PCP11 not in this repo.
+  debug_probe_pop00:
+    name: "Probe SET POP00"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 20
+  debug_probe_pop01:
+    name: "Probe SET POP01"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 21
+  debug_probe_pop02:
+    name: "Probe SET POP02"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 22
+  debug_probe_pop03:
+    name: "Probe SET POP03"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 23
+  debug_probe_pcp00:
+    name: "Probe SET PCP00"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 24
+  debug_probe_pcp01:
+    name: "Probe SET PCP01"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 25
+  debug_probe_pcp02:
+    name: "Probe SET PCP02"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 26
+  debug_probe_pcp03:
+    name: "Probe SET PCP03"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 27
  

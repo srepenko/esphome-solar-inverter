@@ -106,9 +106,13 @@ void SolarInverter::loop() {
   // ─── Таймаут відповіді: злити RX, пауза, НЕ слати наступну команду звідси ───
   if (state_ == WAITING_RESPONSE && millis() - last_send_ > RESPONSE_TIMEOUT_MS) {
     ESP_LOGW(TAG, "Таймаут для команди %s", current_command_.c_str());
-    this->publish_debug_(current_command_, "", "TIMEOUT");
-    this->flush_rx_();
-    this->finish_command_(POST_ERROR_SETTLE_MS);
+    if (set_probe_pending_ && current_command_ == set_probe_command_) {
+      this->finish_set_probe_(current_command_, "", "TIMEOUT", true);
+    } else {
+      this->publish_debug_(current_command_, "", "TIMEOUT");
+      this->flush_rx_();
+      this->finish_command_(POST_ERROR_SETTLE_MS);
+    }
   }
 
   if (millis() - loop_start >= MAX_LOOP_MS)
@@ -491,12 +495,20 @@ void SolarInverter::process_raw_response(const std::string &response) {
 
   if (data == "ACK") {
     ESP_LOGI(TAG, "ACK для [%s]", waiting.c_str());
+    if (set_probe_pending_ && waiting == set_probe_command_) {
+      this->finish_set_probe_(waiting, "(ACK", "ACK", true);
+      return;
+    }
     this->publish_debug_(waiting, "(ACK", "ACK");
     this->finish_command_(INTER_COMMAND_GAP_MS);
     return;
   }
   if (data == "NAK") {
     ESP_LOGW(TAG, "NAK для [%s]", waiting.c_str());
+    if (set_probe_pending_ && waiting == set_probe_command_) {
+      this->finish_set_probe_(waiting, "(NAK", "NAK", true);
+      return;
+    }
     this->publish_debug_(waiting, "(NAK", "NAK");
     this->apply_nak_backoff_(waiting);
     this->finish_command_(INTER_COMMAND_GAP_MS);
@@ -1074,7 +1086,9 @@ void SolarInverter::add_inverter_select(int index, InverterSelect *sel) {
 void InverterInquiryButton::press_action() {
   if (this->parent_ == nullptr)
     return;
-  if (this->dump_all_)
+  if (this->set_probe_)
+    this->parent_->request_set_probe(this->cmd_);
+  else if (this->dump_all_)
     this->parent_->request_debug_dump();
   else
     this->parent_->request_debug_inquiry(this->cmd_);
@@ -1086,6 +1100,19 @@ bool SolarInverter::is_safe_inquiry_(const std::string &cmd) {
       "QFLAG",   "QPIRI",    "QPIGS",   "QPIGS2",   "QPIWS",     "QBEQI",   "QT",     "QDI",
       "QOPPT",   "QCHPT",    "QMCHGCR", "QMUCHGCR", "QBOOT",     "QOPM",    "QET",    "QEY",
       "QEM",     "QED",      "QGO",
+  };
+  for (const char *s : kSafe) {
+    if (cmd == s)
+      return true;
+  }
+  return false;
+}
+
+bool SolarInverter::is_safe_set_probe_(const std::string &cmd) {
+  // POP §3.12 documents 00/01/02 only; POP03 kept as NAK probe (not bound to UtS select).
+  // PCP §3.10 = charger priority (program 16). No POP11/PCP11 in this repo.
+  static const char *const kSafe[] = {
+      "POP00", "POP01", "POP02", "POP03", "PCP00", "PCP01", "PCP02", "PCP03",
   };
   for (const char *s : kSafe) {
     if (cmd == s)
@@ -1106,6 +1133,30 @@ void SolarInverter::publish_debug_(const std::string &command, const std::string
     this->debug_last_result_->publish_state(result);
 }
 
+void SolarInverter::finish_set_probe_(const std::string &command, const std::string &response,
+                                      const std::string &result, bool queue_followups) {
+  ESP_LOGI(TAG, "DEBUG_SET_PROBE cmd=%s result=%s resp=%s", command.c_str(), result.c_str(),
+           response.c_str());
+  if (this->debug_last_command_)
+    this->debug_last_command_->publish_state(command);
+  if (this->debug_last_response_)
+    this->debug_last_response_->publish_state(response.empty() ? result : response);
+  if (this->debug_last_result_)
+    this->debug_last_result_->publish_state(result);
+
+  this->set_probe_pending_ = false;
+  this->set_probe_command_.clear();
+  this->last_set_probe_done_ms_ = millis();
+  this->flush_rx_();
+
+  if (queue_followups) {
+    // Re-read ratings + flags so HA shows whether QPIRI field 16 (prog 01) / 17 (prog 16) moved.
+    this->send_priority_command("QPIRI");
+    this->send_priority_command("QFLAG");
+  }
+  this->finish_command_(POST_SET_PROBE_SETTLE_MS);
+}
+
 void SolarInverter::request_debug_inquiry(const std::string &cmd) {
   if (!is_safe_inquiry_(cmd)) {
     ESP_LOGW(TAG, "Debug refused non-inquiry command '%s'", cmd.c_str());
@@ -1113,6 +1164,31 @@ void SolarInverter::request_debug_inquiry(const std::string &cmd) {
     return;
   }
   ESP_LOGI(TAG, "DEBUG_INQUIRY queue %s", cmd.c_str());
+  this->send_priority_command(cmd);
+}
+
+void SolarInverter::request_set_probe(const std::string &cmd) {
+  if (!is_safe_set_probe_(cmd)) {
+    ESP_LOGW(TAG, "SET probe refused unknown/unsafe command '%s'", cmd.c_str());
+    this->publish_debug_(cmd, "", "REFUSED");
+    return;
+  }
+  if (this->set_probe_pending_) {
+    ESP_LOGW(TAG, "SET probe refused '%s' — already pending '%s'", cmd.c_str(),
+             this->set_probe_command_.c_str());
+    this->publish_debug_(cmd, "", "REFUSED");
+    return;
+  }
+  if (this->last_set_probe_done_ms_ != 0 &&
+      millis() - this->last_set_probe_done_ms_ < SET_PROBE_COOLDOWN_MS) {
+    ESP_LOGW(TAG, "SET probe refused '%s' — cooldown %u ms after last probe", cmd.c_str(),
+             (unsigned) SET_PROBE_COOLDOWN_MS);
+    this->publish_debug_(cmd, "", "REFUSED");
+    return;
+  }
+  this->set_probe_pending_ = true;
+  this->set_probe_command_ = cmd;
+  ESP_LOGI(TAG, "DEBUG_SET_PROBE queue %s (then QPIRI+QFLAG)", cmd.c_str());
   this->send_priority_command(cmd);
 }
 
