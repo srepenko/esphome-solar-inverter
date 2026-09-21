@@ -425,17 +425,20 @@ class SolarInverter : public uart::UARTDevice, public Component {
   bool qpiri_ready_{false};
   size_t qpiri_publish_index_{0};
 
-  //  ─── Таймауты / лимиты loop() ───
-  static constexpr uint32_t RESPONSE_TIMEOUT_MS = 3000;
-  static constexpr uint32_t INTER_COMMAND_GAP_MS = 120;
-  static constexpr uint32_t POST_ERROR_SETTLE_MS = 250;
+  //  ─── Таймауты / лимиты loop() (2400 baud MAX/TTN clone) ───
+  // At 2400 baud a long QPIGS frame alone is ~0.4–0.5 s on the wire.
+  static constexpr uint32_t RESPONSE_TIMEOUT_MS = 4000;
+  static constexpr uint32_t RESPONSE_TIMEOUT_LONG_MS = 5500;  // QPIGS / QPIRI
+  static constexpr uint32_t INTER_COMMAND_GAP_MS = 300;
+  static constexpr uint32_t POST_ERROR_SETTLE_MS = 700;
   static constexpr uint32_t POST_SET_PROBE_SETTLE_MS = 600;
   static constexpr uint32_t SET_PROBE_COOLDOWN_MS = 2000;
-  static constexpr uint32_t MAX_LOOP_MS = 40;
+  // ESPHome warns at ~50 ms; exit early and split work so we stay under.
+  static constexpr uint32_t MAX_LOOP_MS = 45;
   static constexpr size_t MAX_RX_FRAME = 256;
   static constexpr uint8_t QBEQI_NAK_DISABLE_AFTER = 3;
-  static constexpr uint32_t QPIRI_NAK_INTERVAL_MIN_MS = 15000;
-  static constexpr uint32_t QPIRI_NAK_INTERVAL_MAX_MS = 60000;
+  static constexpr uint32_t POLL_NAK_INTERVAL_MIN_MS = 15000;
+  static constexpr uint32_t POLL_NAK_INTERVAL_MAX_MS = 60000;
 
   // One SET probe at a time (no POP/PCP flood).
   bool set_probe_pending_{false};
@@ -451,10 +454,12 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void finish_command_(uint32_t settle_ms);
   void apply_nak_backoff_(const std::string &command);
   void apply_inquiry_success_(const std::string &command);
+  uint32_t response_timeout_for_(const std::string &command) const;
   bool payload_matches_command_(const std::string &command, const std::string &payload) const;
   CommandEntry *find_poll_command_(const std::string &command);
   bool has_qbeqi_entities_() const;
   static bool looks_like_status_line_(const std::string &payload);
+  static bool uses_poll_nak_backoff_(const std::string &command);
   
   //  Публикация частями
   void publish_next_qpigs_chunk_();

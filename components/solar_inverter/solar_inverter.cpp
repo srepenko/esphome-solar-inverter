@@ -93,7 +93,8 @@ void SolarInverter::loop() {
         receiving_ = false;
         this->process_raw_response(rx_buffer_);
         rx_buffer_.clear();
-        break;  // не читати наступний кадр у цьому loop()
+        // CRC + finish — важка робота; не парсити / не TX у цьому ж loop()
+        return;
       }
     }
     if (millis() - loop_start >= MAX_LOOP_MS)
@@ -103,16 +104,19 @@ void SolarInverter::loop() {
   if (!ready_)
     return;
 
-  // ─── Таймаут відповіді: злити RX, пауза, НЕ слати наступну команду звідси ───
-  if (state_ == WAITING_RESPONSE && millis() - last_send_ > RESPONSE_TIMEOUT_MS) {
+  // ─── Таймаут відповіді: злити RX, backoff, пауза; без TX у цьому ж проході ───
+  if (state_ == WAITING_RESPONSE &&
+      millis() - last_send_ > this->response_timeout_for_(current_command_)) {
     ESP_LOGW(TAG, "Таймаут для команди %s", current_command_.c_str());
     if (set_probe_pending_ && current_command_ == set_probe_command_) {
       this->finish_set_probe_(current_command_, "", "TIMEOUT", true);
     } else {
       this->publish_debug_(current_command_, "", "TIMEOUT");
+      this->apply_nak_backoff_(current_command_);
       this->flush_rx_();
       this->finish_command_(POST_ERROR_SETTLE_MS);
     }
+    return;
   }
 
   if (millis() - loop_start >= MAX_LOOP_MS)
@@ -123,6 +127,7 @@ void SolarInverter::loop() {
     const PendingResult res = pending_results_.front();
     pending_results_.pop();
     this->process_result(res.command, res.payload);
+    return;  // один результат за прохід — тримати loop() під лімітом ESPHome
   }
 
   if (millis() - loop_start >= MAX_LOOP_MS)
@@ -141,7 +146,10 @@ void SolarInverter::loop() {
     published_chunk = true;
   }
 
-  if (!published_chunk && millis() - loop_start < MAX_LOOP_MS)
+  if (published_chunk)
+    return;  // не слати наступну UART-команду в тому ж loop() після HA publish
+
+  if (millis() - loop_start < MAX_LOOP_MS)
     this->update_energy_history_();
 
   // ─── Наступна команда тільки в IDLE і після паузи між кадрами ───
@@ -367,6 +375,17 @@ CommandEntry *SolarInverter::find_poll_command_(const std::string &command) {
   return nullptr;
 }
 
+bool SolarInverter::uses_poll_nak_backoff_(const std::string &command) {
+  return command == "QPIRI" || command == "QPIGS" || command == "QPIGS2" || command == "QPIWS";
+}
+
+uint32_t SolarInverter::response_timeout_for_(const std::string &command) const {
+  // Довгі status-рядки на 2400 baud потребують більше часу на RX.
+  if (command == "QPIGS" || command == "QPIGS2" || command == "QPIRI")
+    return RESPONSE_TIMEOUT_LONG_MS;
+  return RESPONSE_TIMEOUT_MS;
+}
+
 void SolarInverter::apply_nak_backoff_(const std::string &command) {
   CommandEntry *entry = this->find_poll_command_(command);
   if (entry == nullptr)
@@ -389,13 +408,14 @@ void SolarInverter::apply_nak_backoff_(const std::string &command) {
     return;
   }
 
-  if (command == "QPIRI") {
-    uint32_t next = entry->interval_ms < QPIRI_NAK_INTERVAL_MIN_MS ? QPIRI_NAK_INTERVAL_MIN_MS
+  if (uses_poll_nak_backoff_(command)) {
+    uint32_t next = entry->interval_ms < POLL_NAK_INTERVAL_MIN_MS ? POLL_NAK_INTERVAL_MIN_MS
                                                                   : entry->interval_ms * 2;
-    if (next > QPIRI_NAK_INTERVAL_MAX_MS)
-      next = QPIRI_NAK_INTERVAL_MAX_MS;
+    if (next > POLL_NAK_INTERVAL_MAX_MS)
+      next = POLL_NAK_INTERVAL_MAX_MS;
     entry->interval_ms = next;
-    ESP_LOGW(TAG, "QPIRI NAK — повтор через %u мс (програма 01), без флуду", (unsigned) next);
+    ESP_LOGW(TAG, "%s NAK/timeout — повтор через %u мс, без флуду", command.c_str(),
+             (unsigned) next);
   }
 }
 
@@ -511,7 +531,7 @@ void SolarInverter::process_raw_response(const std::string &response) {
     }
     this->publish_debug_(waiting, "(NAK", "NAK");
     this->apply_nak_backoff_(waiting);
-    this->finish_command_(INTER_COMMAND_GAP_MS);
+    this->finish_command_(POST_ERROR_SETTLE_MS);
     return;
   }
 
