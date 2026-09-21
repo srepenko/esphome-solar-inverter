@@ -35,8 +35,9 @@ InverterInquiryButton = solar_inverter_ns.class_("InverterInquiryButton", button
 INVERTER_SWITCH_SCHEMA = lambda icon: switch.switch_schema(
     InverterSwitch, icon=icon, entity_category=ENTITY_CATEGORY_CONFIG
 )
-INVERTER_NUMBER_SCHEMA = number.number_schema(
-    InverterNumber, entity_category=ENTITY_CATEGORY_CONFIG
+# NumberTraits has no set_unit_of_measurement in ESPHome 2026.9; pass unit here.
+INVERTER_NUMBER_SCHEMA = lambda unit: number.number_schema(
+    InverterNumber, entity_category=ENTITY_CATEGORY_CONFIG, unit_of_measurement=unit
 ).extend({
     cv.GenerateID("parent"): cv.use_id(SolarInverter),
     cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
@@ -197,20 +198,20 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional("debug_query_qmchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_query_qmuchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_dump_inquiries"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("equalization_period"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA("V"),
+    cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA("min"),
+    cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA("min"),
+    cv.Optional("equalization_period"): INVERTER_NUMBER_SCHEMA("d"),
     cv.Optional("equalization_max_current"): sensor.sensor_schema(unit_of_measurement="A", accuracy_decimals=0),
     cv.Optional("equalization_elapsed_time"): sensor.sensor_schema(unit_of_measurement="min", accuracy_decimals=0),
     
     #QPIWS
-    cv.Optional("battery_recharge_voltage"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("battery_redischarge_voltage"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("max_charging_current"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("max_ac_charging_current"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("ac_output_rating_frequency"): INVERTER_NUMBER_SCHEMA,
-    cv.Optional("ac_output_rating_voltage"): INVERTER_NUMBER_SCHEMA,
+    cv.Optional("battery_recharge_voltage"): INVERTER_NUMBER_SCHEMA("V"),
+    cv.Optional("battery_redischarge_voltage"): INVERTER_NUMBER_SCHEMA("V"),
+    cv.Optional("max_charging_current"): INVERTER_NUMBER_SCHEMA("A"),
+    cv.Optional("max_ac_charging_current"): INVERTER_NUMBER_SCHEMA("A"),
+    cv.Optional("ac_output_rating_frequency"): INVERTER_NUMBER_SCHEMA("Hz"),
+    cv.Optional("ac_output_rating_voltage"): INVERTER_NUMBER_SCHEMA("V"),
 
 }).extend(cv.COMPONENT_SCHEMA)
 
@@ -381,17 +382,17 @@ async def to_code(config):
     # Number fields: min/max/step from Voltronic/MAX + this component's P* commands.
     # Formats use float specifiers (control() passes float). pipsolar-style ranges.
     number_fields = {
-        'equalization_voltage': {       'fmt': "%.2f", 'cmd': "PBEQV", 'min': 48.0, 'max': 61.0, 'step': 0.1, 'unit': "V"},
-        'equalization_time': {          'fmt': "%03.0f", 'cmd': "PBEQT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
-        'equalization_over_time': {     'fmt': "%03.0f", 'cmd': "PBEQOT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
-        'equalization_period': {        'fmt': "%03.0f", 'cmd': "PBEQP", 'min': 0, 'max': 90, 'step': 1, 'unit': "d"},
+        'equalization_voltage': {       'fmt': "%.2f", 'cmd': "PBEQV", 'min': 48.0, 'max': 61.0, 'step': 0.1},
+        'equalization_time': {          'fmt': "%03.0f", 'cmd': "PBEQT", 'min': 5, 'max': 900, 'step': 5},
+        'equalization_over_time': {     'fmt': "%03.0f", 'cmd': "PBEQOT", 'min': 5, 'max': 900, 'step': 5},
+        'equalization_period': {        'fmt': "%03.0f", 'cmd': "PBEQP", 'min': 0, 'max': 90, 'step': 1},
         # QPIRI writable setpoints (48V MAX / pipsolar)
-        'battery_recharge_voltage': {   'fmt': "%02.1f", 'cmd': "PBCV", 'min': 44, 'max': 51, 'step': 1, 'unit': "V"},
-        'battery_redischarge_voltage': {'fmt': "%02.1f", 'cmd': "PBDV", 'min': 48, 'max': 58, 'step': 1, 'unit': "V"},
-        'max_charging_current': {       'fmt': "%03.0f", 'cmd': "MNCHGC", 'min': 10, 'max': 120, 'step': 10, 'unit': "A"},
-        'max_ac_charging_current': {    'fmt': "%03.0f", 'cmd': "MUCHGC", 'min': 10, 'max': 100, 'step': 10, 'unit': "A"},
-        'ac_output_rating_frequency': { 'fmt': "%02.0f", 'cmd': "F", 'min': 50, 'max': 60, 'step': 10, 'unit': "Hz"},
-        'ac_output_rating_voltage': {   'fmt': "%03.0f", 'cmd': "V", 'min': 220, 'max': 240, 'step': 10, 'unit': "V"},
+        'battery_recharge_voltage': {   'fmt': "%02.1f", 'cmd': "PBCV", 'min': 44, 'max': 51, 'step': 1},
+        'battery_redischarge_voltage': {'fmt': "%02.1f", 'cmd': "PBDV", 'min': 48, 'max': 58, 'step': 1},
+        'max_charging_current': {       'fmt': "%03.0f", 'cmd': "MNCHGC", 'min': 10, 'max': 120, 'step': 10},
+        'max_ac_charging_current': {    'fmt': "%03.0f", 'cmd': "MUCHGC", 'min': 10, 'max': 100, 'step': 10},
+        'ac_output_rating_frequency': { 'fmt': "%02.0f", 'cmd': "F", 'min': 50, 'max': 60, 'step': 10},
+        'ac_output_rating_voltage': {   'fmt': "%03.0f", 'cmd': "V", 'min': 220, 'max': 240, 'step': 10},
     }
 
 
@@ -412,9 +413,6 @@ async def to_code(config):
             cg.add(num.set_parent(par))
             cg.add(num.set_command_prefix(props['cmd']))
             cg.add(num.set_format(props['fmt']))
-            if props['unit']:
-                cg.add(num.traits.set_unit_of_measurement(props['unit']))
-            cg.add(num.traits.set_mode(nconf[CONF_MODE]))
 
             setter_name = f"set_{field}"
             if hasattr(var, setter_name):
