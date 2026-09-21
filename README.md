@@ -54,12 +54,13 @@ substitutions:
   name: ttn-inverter
   inv_id: ttn-inverter
   device_description: "Hybrid inverter via MAX communication"
-  external_components_source: github://srepenko/esphome-solar-inverter@main
+  # Use @work until schema API + program 01 land on main (PR #3). Then switch to @main.
+  external_components_source: github://srepenko/esphome-solar-inverter@work
 
 esphome:
   name: ${name}
   comment: ${device_description}
-  min_version: 2024.6.0
+  min_version: 2025.11.0
   platformio_options:
     board_build.f_flash: 40000000L
     board_build.flash_mode: dio

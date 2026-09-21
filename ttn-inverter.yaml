@@ -2,12 +2,13 @@ substitutions:
   name: ttn-inverter
   inv_id: ttn-inverter
   device_description: "Hybrid inverter via MAX communication"
-  external_components_source: github://srepenko/esphome-solar-inverter@main
+  # Use @work until schema API + program 01 land on main (PR #3). Switch to @main after that merge.
+  external_components_source: github://srepenko/esphome-solar-inverter@work
   
 esphome:
   name: ${name}
   comment: ${device_description}
-  min_version: 2024.6.0
+  min_version: 2025.11.0
   platformio_options:
     board_build.f_flash: 40000000L
     board_build.flash_mode: dio
@@ -56,6 +57,18 @@ wifi:
 
 captive_portal:
 web_server:
+  # HA device page has no real tabs. Groups below are for ESPHome web UI.
+  # In HA: entity_category config = Configuration, diagnostic = Diagnostic.
+  sorting_groups:
+    - id: grp_status
+      name: "Состояние"
+      weight: 10
+    - id: grp_settings
+      name: "Настройки (как на LCD)"
+      weight: 20
+    - id: grp_debug
+      name: "Отладка протокола"
+      weight: 30
 
 #uart:
 #  id: uart_bus
@@ -79,63 +92,34 @@ uart:
 solar_inverter:
   id: solar_inv
   uart_id: uart_bus
-#  protocol_id:
-#    name: "Protocol ID"
-#  serial_number:
-#    name: "Serial Number"
 
-  #QMOD
-#  device_mode_sensor:
-#    name: "Device Mode inquiry RAW"
+  # ── Идентификация / Identity (diagnostic, always visible) ──
+  # Boot queues QPI+QID+QVFW+QVFW2+QGMN; Refresh Identity re-queues the same five.
+  # QVFW2 often NAK on clones without a separate display FW — sensor shows "NAK".
+  # Имена EN (+ код inquiry) → стабильные entity id; смысл по-русски — в settings-ux.md.
+  protocol_id:
+    name: "Protocol ID"
+  serial_number:
+    name: "Serial Number"
+  firmware_version:
+    name: "Firmware DSP (QVFW)"
+  firmware_version_2:
+    name: "Firmware Display (QVFW2)"
+  general_model_name:
+    name: "General Model (QGMN)"
+  refresh_identity:
+    name: "Refresh Identity"
+  eeprom_version_text:
+    name: "EEPROM version"
+
+  # ── Живое состояние: QMOD / QPIGS / QPIWS (не config) ──
+  device_mode_sensor:
+    name: "Device Mode inquiry RAW"
   device_mode_text:
     name: "Device Mode inquiry"
-
-  # QFLAG switches
-  buzzer_control:
-    name: "Alarm Control"
-  overload_bypass:
-    name: "Overload Bypass"
-  display_escape_to_default_page:
-    name: "LCD Display Escape to Default Page"
-  overload_restart:
-    name: "Overload Restart"
-  over_temperature_restart:
-    name: "Over Temperature Restart"
-  backlight_control:
-    name: "Backlight Control"
-  alarm_primary_source_interrupt:
-    name: "Beeps on Primary Source Interrupt"
-  fault_code_record:
-    name: "Record Fault code"
-  power_saving:
-    name: "Power Saving Mode"
-  data_log_popup:
-    name: "Data Log Pop-up"
-  grid_charge_enable:
-    name: "Grid Charge Enable"  # не нашел описание
-  solar_feed_to_grid:
-    name: "Solar Feed to Grid"   # не нашел описание
-
-## QPIWS Sensor
   warning_status_text:
     name: "Inverter Warnings"
 
-## QBEQI
-  equalization_enable:
-    name: "Battery equalization"
-  equalization_voltage:
-    name: "Battery equalization voltage"
-  equalization_time:
-    name: "Battery equalization time"
-  equalization_period:
-    name: "Equalization interval"
-  equalization_over_time:
-    name: "Equalization timeout"
-  equalization_active:
-    name: "Equalization activated immediately"
-
-
-## QPIGS Sensors
   grid_voltage:
     name: "Grid Voltage"
   grid_freq:
@@ -150,46 +134,52 @@ solar_inverter:
     name: "Active Power"
   output_load_percent:
     name: "Load %"
-#  bus_voltage:
-#    name: "Solar Inverter Bus Voltage"
+  bus_voltage:
+    name: "Solar Inverter Bus Voltage"
   battery_voltage:
     name: "Battery Voltage"
   battery_charging_current:
     name: "Battery Charging Current"
   battery_capacity:
     name: "Battery Capacity"
-#  inverter_temp:
-#    name: "Inverter Heatsink Temperature"
+  inverter_temp:
+    name: "Inverter Heatsink Temperature"
   pv_input_current:
     name: "PV Input Current"
   pv_input_voltage:
     name: "PV Input Voltage"
-#  battery_voltage_from_scc:
-#    name: "Battery Voltage SCC"
+  battery_voltage_from_scc:
+    name: "Battery Voltage SCC"
   battery_discharge_current:
     name: "Battery Discharge Current"
-#  pv_or_ac_powering_load:
-#    name: "PV or AC feed the load"
-#  config_changed:
-#    name: "Configuration status"
-#  scc_fw_updated:
-#    name: " SCC  firmware  version"
-#  load_on:
-#    name: "Load status"
+  pv_or_ac_powering_load:
+    name: "PV or AC feed the load"
+  config_changed:
+    name: "Configuration status"
+  scc_fw_updated:
+    name: "SCC firmware updated"
+  load_on:
+    name: "Load status"
+  charging_on:
+    name: "Charging On"
+  scc_charging_on:
+    name: "SCC Charging On"
+  ac_charging_on:
+    name: "AC Charging On"
+  charging_mode_sensor:
+    name: "Charging Mode Code"
   charging_mode_text:
     name: "Charging Mode"
-#  fan_on_voltage_offset:
-#    name: "Battery  voltage  offset for fans on "
-#  eeprom_version_text:
-#    name: "EEPROM version"
+  fan_on_voltage_offset:
+    name: "Battery voltage offset for fans on"
   pv_charging_power:
     name: "PV Charging power"
-#  charging_to_float
-#    name: "flag for charging to floating mode"
-#  inverter_on
-#    name: "Switch On"
-#  dustproof_installed
-#    name: "flag  for  dustproof  installed"
+  charging_to_float:
+    name: "Charging to floating mode"
+  inverter_on:
+    name: "Switch On"
+  dustproof_installed:
+    name: "Dustproof installed"
   energy_solar_today:
     name: "Solar Energy Today"
   energy_solar_month:
@@ -207,64 +197,309 @@ solar_inverter:
   energy_inverter_total:
     name: "Inverter Energy This Total"
 
-## QPIRI Sensors
-##  grid_rating_voltage:
-##    name: "Grid Rating Voltage"
-##  grid_rating_current:
-##    name: "Grid Rating Current"
-  ac_output_rating_voltage:
-    name: "AC Output Rating Voltage"
-  ac_output_rating_frequency:
-    name: "AC Output Rating Frequency"
-##  ac_output_rating_current:
-##    name: "AC Output Rating Current"
-##  ac_output_rating_apparent_power:
-##    name: "AC Output Apparent Power"
-##  ac_output_rating_active_power:
-##    name: "AC Output Active Power"
+  # ── Настройки в порядке программ LCD / мануала (entity_category: config) ──
+  # 01 Output source priority. HA: select.ttn_inverter_output_source_priority
+  # SET: POP00 USB, POP01 SUB, POP02 SBU (§3.12 only). QPIRI 3 = UtS; POP03 не в select (probe only).
+  output_source_priority:
+    name: "01 Output source priority"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 1
+  output_source_priority_text:
+    name: "01 Output source priority description"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 2
+  output_source_priority_code:
+    name: "01 Output source priority QPIRI code"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 1
 
-##  battery_rating_voltage:
-##    name: "Battery Rating Voltage"
-  battery_recharge_voltage:
-    name: "Back to utility source"
-##  battery_undervoltage:
-##    name: "Battery Under Voltage"
-##  battery_bulk_voltage:
-##    name: "Battery Bulk Voltage"
-##  battery_float_voltage:
-##    name: "Battery Float Voltage"
-#  battery_type:
-#    name: "Battery Type"
-  max_ac_charging_current:
-    name: "Max AC Charging Current"
+  # 02 Max charging current — MNCHGC, 10–120 A step 10
   max_charging_current:
-    name: "Max Total Charging Current"
-##  input_voltage_range:
-##    name: "Input Voltage Range"
-#  output_source_priority:
-#    name: "Output Source Priority"
+    name: "02 Max total charging current"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 2
 
-#  charger_source_priority:
-#    name: "Charger Source Priority"
-##  parallel_max_number:
-##    name: "Max Parallel Units"
-##  machine_type:
-##    name: "Machine Type"
-##  topology:
-##    name: "Topology" 
-##  output_mode:
-##    name: "Output Mode"
+  # 03 Input voltage range APL/UPS — not in CONFIG_SCHEMA
+  #  input_voltage_range:
+  #    name: "03 Input voltage range"
+
+  # 04 Power saving — QFLAG w
+  power_saving:
+    name: "04 Power saving mode"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 4
+
+  # 05 Battery type AGM/Flooded/User — not in CONFIG_SCHEMA
+  #  battery_type:
+  #    name: "05 Battery type"
+
+  # 06 Auto restart when overload — QFLAG u
+  overload_restart:
+    name: "06 Overload restart"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 6
+
+  # 07 Auto restart when over temperature — QFLAG v
+  over_temperature_restart:
+    name: "07 Over temperature restart"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 7
+
+  # 08 Output voltage — V220/230/240 step 10
+  ac_output_rating_voltage:
+    name: "08 AC output voltage"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 8
+
+  # 09 Output frequency — F50/F60
+  ac_output_rating_frequency:
+    name: "09 AC output frequency"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 9
+
+  # 11 Max AC charging current — MUCHGC, 10–100 A step 10 (2A на LCD — особое)
+  max_ac_charging_current:
+    name: "11 Max AC charging current"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 11
+
+  # 12 Back to utility (SBU) — PBCV, 44–51 V step 1
+  battery_recharge_voltage:
+    name: "12 Back to utility source"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 12
+
+  # 13 Back to battery — PBDV, 48–58 V step 1
   battery_redischarge_voltage:
-    name: "Back to battery"
+    name: "13 Back to battery"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 13
 
-##  pv_ok_condition:
-##    name: "PV OK Condition for Parallel"
-##  pv_power_balance:
-##    name: "PV Power Balance"
-##  max_charging_time_cv_stage:
-##    name: "Max Charging Time CV Stage"
-##  operation_logic:
-##    name: "Operation Logic"
-##  max_discharging_current:
-##    name: "Max Discharging Current"
-  
+  # 16 Charger source priority CSO/SNU/OSO — C++ pointer only, no PGR mapping here
+  #  charger_source_priority:
+  #    name: "16 Charger source priority"
+
+  # 18 Alarm / buzzer — QFLAG a
+  buzzer_control:
+    name: "18 Alarm control"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 18
+
+  # 19 LCD escape to default page — QFLAG k
+  display_escape_to_default_page:
+    name: "19 LCD escape to default page"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 19
+
+  # 20 Backlight — QFLAG x
+  backlight_control:
+    name: "20 Backlight control"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 20
+
+  # 22 Beeps when primary source interrupt — QFLAG y
+  alarm_primary_source_interrupt:
+    name: "22 Beeps on primary source interrupt"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 22
+
+  # 23 Overload bypass — QFLAG b
+  overload_bypass:
+    name: "23 Overload bypass"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 23
+
+  # 25 Record fault code — QFLAG z
+  fault_code_record:
+    name: "25 Record fault code"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 25
+
+  # 26/27/29 battery voltages — not in CONFIG_SCHEMA
+  #  battery_bulk_voltage:
+  #    name: "26 Battery bulk voltage"
+  #  battery_float_voltage:
+  #    name: "27 Battery float voltage"
+  #  battery_undervoltage:
+  #    name: "29 Battery under voltage"
+
+  # Equalization (QBEQI / programs 32–39 typical Voltronic).
+  # Firmware polls QBEQI only if these keys exist. Persistent NAK disables that poll
+  # (this clone often has no equalization). Debug QBEQI still works. Comment the
+  # block out to hide dead HA entities after Install; leave it if LCD has 32–37.
+  equalization_enable:
+    name: "32 Battery equalization"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 32
+  equalization_voltage:
+    name: "33 Equalization voltage"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 33
+  equalization_time:
+    name: "34 Equalization time"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 34
+  equalization_over_time:
+    name: "35 Equalization timeout"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 35
+  equalization_period:
+    name: "36 Equalization interval"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 36
+  equalization_active:
+    name: "37 Equalization activated immediately"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 37
+  equalization_max_current:
+    name: "Equalization max current"
+  equalization_elapsed_time:
+    name: "Equalization elapsed time"
+
+  data_log_popup:
+    name: "Data log pop-up"
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 40
+  grid_charge_enable:
+    name: "Grid charge enable"  # QFLAG g; no matching item in the Ukrainian manual
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 41
+  solar_feed_to_grid:
+    name: "Solar feed to grid"   # QFLAG d; no matching item in the Ukrainian manual
+    web_server:
+      sorting_group_id: grp_settings
+      sorting_weight: 42
+
+  # Rating / identity fields — not in CONFIG_SCHEMA (QPIRI read-only leftovers)
+  #  grid_rating_voltage:
+  #    name: "Grid rating voltage"
+  #  grid_rating_current:
+  #    name: "Grid rating current"
+  #  ac_output_rating_current:
+  #    name: "AC output rating current"
+  #  ac_output_rating_apparent_power:
+  #    name: "AC output apparent power"
+  #  ac_output_rating_active_power:
+  #    name: "AC output active power"
+  #  battery_rating_voltage:
+  #    name: "Battery rating voltage"
+  #  parallel_max_number:
+  #    name: "Max parallel units"
+  #  machine_type:
+  #    name: "Machine type"
+  #  topology:
+  #    name: "Topology"
+  #  output_mode:
+  #    name: "Output mode"
+  #  pv_ok_condition:
+  #    name: "PV OK condition for parallel"
+  #  pv_power_balance:
+  #    name: "PV power balance"
+  #  max_charging_time_cv_stage:
+  #    name: "Max charging time CV stage"
+  #  operation_logic:
+  #    name: "Operation logic"
+  #  max_discharging_current:
+  #    name: "Max discharging current"
+
+  # ── Debug: inquiry + SET probes (NN + POP/PCP). Copy text sensors + лог ──
+  # debug_last_* shows the SET reply (ACK/NAK/…) and is NOT overwritten by auto QPIRI/QFLAG.
+  debug_last_command:
+    name: "Debug last command"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 10
+  debug_last_response:
+    name: "Debug last response"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 11
+  debug_last_result:
+    name: "Debug last result"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 12
+  debug_dump_inquiries:
+    name: "Debug dump all inquiries"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 13
+  debug_query_qpi:
+    name: "Debug QPI"
+  debug_query_qid:
+    name: "Debug QID"
+  debug_query_qvfw:
+    name: "Debug QVFW"
+  debug_query_qvfw2:
+    name: "Debug QVFW2"
+  debug_query_qmn:
+    name: "Debug QMN"
+  debug_query_qgmn:
+    name: "Debug QGMN"
+  debug_query_qmod:
+    name: "Debug QMOD"
+  debug_query_qflag:
+    name: "Debug QFLAG"
+  debug_query_qpiri:
+    name: "Debug QPIRI"
+  debug_query_qpigs:
+    name: "Debug QPIGS"
+  debug_query_qpiws:
+    name: "Debug QPIWS"
+  debug_query_qbeqi:
+    name: "Debug QBEQI"
+  debug_query_qdi:
+    name: "Debug QDI"
+  debug_query_qoppt:
+    name: "Debug QOPPT"
+  debug_query_qmchgcr:
+    name: "Debug QMCHGCR"
+  debug_query_qmuchgcr:
+    name: "Debug QMUCHGCR"
+
+  # SET probes: enter NN (00–99), then press POP or PCP. Same UART queue, ~2s cooldown.
+  # POP §3.12 = program 01 (00/01/02 known good; POP03 probe-only, expect NAK, never bind UtS).
+  # PCP §3.10 = program 16 charger probes. Replaces debug_probe_pop00…03 / debug_probe_pcp00…03.
+  debug_probe_nn:
+    name: "Probe SET NN"
+    mode: box
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 20
+  debug_probe_pop:
+    name: "Probe SET POP"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 21
+  debug_probe_pcp:
+    name: "Probe SET PCP"
+    web_server:
+      sorting_group_id: grp_debug
+      sorting_weight: 22
+ 

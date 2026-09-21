@@ -9,6 +9,12 @@ namespace solar_inverter {
     void InverterNumber::control(float value) {
         if (this->is_from_inverter_)
           return;
+
+        // Probe NN and similar: update HA state only, never UART.
+        if (this->local_only_) {
+          this->publish_state(value);
+          return;
+        }
       
         if (this->parent_ != nullptr) {
           if (this->format_.empty()) {

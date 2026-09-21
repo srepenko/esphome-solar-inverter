@@ -15,20 +15,26 @@
 #include "inverter_switch.h"
 #include "inverter_select.h"
 #include "inverter_number.h"
+#include "inverter_inquiry_button.h"
 #include "esphome/components/select/select.h"
+#include "esphome/components/button/button.h"
 
 
 #include <queue>
 #include <vector>
 #include <string>
+#include <map>
 
 namespace esphome {
 namespace solar_inverter {
 
 struct CommandEntry {
   std::string command;
-  uint32_t interval_ms;   // интервал в миллисекундах
-  uint32_t last_run_ms;   // время последнего запуска (millis())
+  uint32_t interval_ms;        // текущий интервал (может расти после NAK)
+  uint32_t last_run_ms;        // время последнего запуска (millis())
+  uint32_t base_interval_ms;   // интервал при успешном ответе
+  uint8_t consecutive_naks{0};
+  bool poll_disabled{false};   // persistent NAK — больше не опрашивать
 };
 
 struct PendingResult {
@@ -58,6 +64,9 @@ class SolarInverter : public uart::UARTDevice, public Component {
    // Сеттеры для конфигурационных сенсоров
    void set_protocol_id_sensor(text_sensor::TextSensor *sens) { protocol_id_sensor_ = sens; }
    void set_serial_number_sensor(text_sensor::TextSensor *sens) { serial_number_sensor_ = sens; }
+   void set_firmware_version_sensor(text_sensor::TextSensor *sens) { firmware_version_sensor_ = sens; }
+   void set_firmware_version_2_sensor(text_sensor::TextSensor *sens) { firmware_version_2_sensor_ = sens; }
+   void set_general_model_name_sensor(text_sensor::TextSensor *sens) { general_model_name_sensor_ = sens; }
  
    // Сеттеры для QMOD
    void set_device_mode_sensor(text_sensor::TextSensor *sens) { device_mode_sensor_ = sens; }
@@ -145,10 +154,13 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void set_equalization_elapsed_time(sensor::Sensor *s) { equalization_elapsed_time_ = s; }
 
   // ────────────────────────────────────────────────────────────
-  // ── Сенсоры конфигурации (QPI, QID, QMOD, …)               ──
+  // ── Сенсоры конфигурации (QPI, QID, QVFW, QMOD, …)          ──
   // ────────────────────────────────────────────────────────────
-  text_sensor::TextSensor *protocol_id_sensor_{nullptr};
-  text_sensor::TextSensor *serial_number_sensor_{nullptr};
+  text_sensor::TextSensor *protocol_id_sensor_{nullptr};       // QPI
+  text_sensor::TextSensor *serial_number_sensor_{nullptr};     // QID
+  text_sensor::TextSensor *firmware_version_sensor_{nullptr};  // QVFW (main/DSP)
+  text_sensor::TextSensor *firmware_version_2_sensor_{nullptr}; // QVFW2 (display; often NAK)
+  text_sensor::TextSensor *general_model_name_sensor_{nullptr}; // QGMN
   text_sensor::TextSensor *device_mode_sensor_{nullptr};
   text_sensor::TextSensor *device_mode_text_{nullptr};
 
@@ -264,6 +276,30 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void set_input_voltage_range(InverterSelect *s) { input_voltage_range_ = s; }
   void set_output_source_priority(InverterSelect *s) { output_source_priority_ = s; }
   void set_charger_source_priority(InverterSelect *s) { charger_source_priority_ = s; }
+  void set_output_source_priority_text(text_sensor::TextSensor *s) { output_source_priority_text_ = s; }
+  void set_output_source_priority_code(text_sensor::TextSensor *s) { output_source_priority_code_ = s; }
+
+  text_sensor::TextSensor *output_source_priority_text_{nullptr};
+  text_sensor::TextSensor *output_source_priority_code_{nullptr};
+
+  void set_debug_last_command(text_sensor::TextSensor *s) { debug_last_command_ = s; }
+  void set_debug_last_response(text_sensor::TextSensor *s) { debug_last_response_ = s; }
+  void set_debug_last_result(text_sensor::TextSensor *s) { debug_last_result_ = s; }
+
+  text_sensor::TextSensor *debug_last_command_{nullptr};
+  text_sensor::TextSensor *debug_last_response_{nullptr};
+  text_sensor::TextSensor *debug_last_result_{nullptr};
+
+  void request_debug_inquiry(const std::string &cmd);
+  void request_debug_dump();
+  // Queue QPI+QID+QVFW+QVFW2+QGMN once (priority queue, no poller flood).
+  void request_identity_refresh();
+  // One safe SET (POP## / PCP##, ## = 00–99) via UART priority queue, then QPIRI+QFLAG.
+  // Immediate ACK/NAK stays on debug_last_*; follow-up inquiries do not overwrite them.
+  void request_set_probe(const std::string &cmd);
+  // Build PREFIX+NN from debug_probe_nn (e.g. "POP" + 3 → "POP03").
+  void request_set_probe_with_nn(const std::string &prefix);
+  void set_debug_probe_nn(InverterNumber *n) { debug_probe_nn_ = n; }
   void set_machine_type(InverterSelect *s) { machine_type_ = s; }
   void set_topology(InverterSelect *s) { topology_ = s; }
   void set_output_mode(InverterSelect *s) { output_mode_ = s; }
@@ -357,6 +393,7 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void add_poll_command(const std::string &cmd, uint32_t interval_ms);
   void send_priority_command(const std::string &cmd);
   void update_energy_history_();
+  static constexpr size_t MAX_PRIORITY_QUEUE = 24;
  private:
   
   InverterSelect *select_;
@@ -381,17 +418,19 @@ class SolarInverter : public uart::UARTDevice, public Component {
   std::string rx_buffer_;
   bool receiving_{false};
   uint32_t last_send_{0};
+  uint32_t next_send_allowed_ms_{0};
   bool ready_{false};
-  bool ack_received_{false};
 
 
   //  ─── Ответы, ожидающие публикации ───
   std::string last_qpigs_data_;
+  std::vector<std::string> qpigs_parts_;
   bool qpigs_ready_{false};
   size_t qpigs_publish_index_{0};
 
   // Для пошаговой публикации QBEQI
   std::string last_qbeqi_data_;
+  std::vector<std::string> qbeqi_parts_;
   bool qbeqi_ready_{false};
   size_t qbeqi_publish_index_{0};
 
@@ -400,26 +439,79 @@ class SolarInverter : public uart::UARTDevice, public Component {
   bool qpiri_ready_{false};
   size_t qpiri_publish_index_{0};
 
-  //  ─── Таймауты ───
-  static constexpr uint32_t RESPONSE_TIMEOUT_MS = 3000;
+  // QFLAG: parse once, publish one switch per tick
+  std::string last_qflag_data_;
+  bool qflag_on_[128]{};
+  bool qflag_ready_{false};
+  size_t qflag_publish_index_{0};
+
+  // Defer CRC/parse off the RX tick (frame complete → next loop).
+  std::string pending_raw_frame_;
+  bool raw_frame_pending_{false};
+
+  // Energy: never flash in UART path; one NVS write per deferred step.
+  bool energy_save_pending_{false};
+  uint8_t energy_save_index_{0};
+  uint8_t energy_publish_index_{0};
+  uint32_t last_energy_update_ms_{0};
+  uint32_t last_energy_save_ms_{0};
+  uint32_t last_energy_day_{0}, last_energy_month_{0}, last_energy_year_{0};
+  uint32_t last_energy_loop_ms_{0};
+
+  //  ─── Таймауты / лимиты loop() (2400 baud MAX/TTN clone) ───
+  // At 2400 baud a long QPIGS frame alone is ~0.4–0.5 s on the wire.
+  static constexpr uint32_t RESPONSE_TIMEOUT_MS = 4000;
+  static constexpr uint32_t RESPONSE_TIMEOUT_LONG_MS = 5500;  // QPIGS / QPIRI
+  static constexpr uint32_t INTER_COMMAND_GAP_MS = 300;
+  static constexpr uint32_t POST_ERROR_SETTLE_MS = 700;
+  static constexpr uint32_t POST_SET_PROBE_SETTLE_MS = 600;
+  static constexpr uint32_t SET_PROBE_COOLDOWN_MS = 2000;
+  // ESPHome warns at ~50 ms; keep headroom (RX / CRC / publish / TX are separate ticks).
+  static constexpr uint32_t MAX_LOOP_MS = 35;
+  static constexpr size_t MAX_RX_FRAME = 256;
+  static constexpr uint8_t QBEQI_NAK_DISABLE_AFTER = 3;
+  static constexpr uint32_t POLL_NAK_INTERVAL_MIN_MS = 15000;
+  static constexpr uint32_t POLL_NAK_INTERVAL_MAX_MS = 60000;
+  static constexpr uint32_t ENERGY_SAVE_STEP_MS = 80;
+
+  // One SET probe at a time (no POP/PCP flood).
+  bool set_probe_pending_{false};
+  std::string set_probe_command_;
+  uint32_t last_set_probe_done_ms_{0};
+  // After SET ACK/NAK, keep debug_last_* on that reply until next manual debug/probe.
+  bool hold_set_probe_debug_{false};
+  InverterNumber *debug_probe_nn_{nullptr};
 
   //  ─── Внутренние методы ───
   void next_command_();
   void send_command(const std::string &cmd);
   void process_raw_response(const std::string &response);
   void process_result(const std::string &command, const std::string &payload);
+  void flush_rx_();
+  void finish_command_(uint32_t settle_ms);
+  void apply_nak_backoff_(const std::string &command);
+  void apply_inquiry_success_(const std::string &command);
+  uint32_t response_timeout_for_(const std::string &command) const;
+  bool payload_matches_command_(const std::string &command, const std::string &payload) const;
+  CommandEntry *find_poll_command_(const std::string &command);
+  bool has_qbeqi_entities_() const;
+  static bool looks_like_status_line_(const std::string &payload);
+  static bool uses_poll_nak_backoff_(const std::string &command);
   
   //  Публикация частями
   void publish_next_qpigs_chunk_();
-  void process_qpigs_status_bits_(const std::string &bits);
+  void process_qpigs_status_bits_part_(const std::string &bits, uint8_t part);
   void process_qpigs_flag_bits_(const std::string &bits);
   void process_qmod_(const std::string &payload);
-  void process_qflag_(const std::string &payload);
+  void process_qflag_parse_(const std::string &payload);
+  void publish_next_qflag_chunk_();
   std::string decode_qpiws_(const std::string &bits);
   void publish_next_qbeqi_chunk_();
   void publish_next_qpiri_chunk_();
   void setup_qflag_switches();
-
+  void schedule_energy_save_();
+  void save_energy_step_();
+  bool uart_busy_() const;
   //  CRC / utils
   static uint16_t calculate_crc(const std::string &cmd);
   static uint16_t cal_crc_half(const uint8_t *data, size_t len);
@@ -427,6 +519,14 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   static std::vector<std::string> split_string(const std::string &s, char delimiter);
   static bool safe_stof(const std::string &s, float &value);
+  static bool is_safe_inquiry_(const std::string &cmd);
+  static bool is_safe_set_probe_(const std::string &cmd);
+  void publish_debug_(const std::string &command, const std::string &response, const std::string &result);
+  void publish_identity_(const std::string &command, const std::string &value);
+  static bool is_identity_inquiry_(const std::string &command);
+  void publish_output_source_priority_(const std::string &raw_code);
+  void finish_set_probe_(const std::string &command, const std::string &response,
+                         const std::string &result, bool queue_followups);
  protected:
   std::map<int, InverterSelect*> inverter_selects_by_index_;
 };
