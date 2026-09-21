@@ -15,7 +15,9 @@
 #include "inverter_switch.h"
 #include "inverter_select.h"
 #include "inverter_number.h"
+#include "inverter_inquiry_button.h"
 #include "esphome/components/select/select.h"
+#include "esphome/components/button/button.h"
 
 
 #include <queue>
@@ -265,6 +267,22 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void set_input_voltage_range(InverterSelect *s) { input_voltage_range_ = s; }
   void set_output_source_priority(InverterSelect *s) { output_source_priority_ = s; }
   void set_charger_source_priority(InverterSelect *s) { charger_source_priority_ = s; }
+  void set_output_source_priority_text(text_sensor::TextSensor *s) { output_source_priority_text_ = s; }
+  void set_output_source_priority_code(text_sensor::TextSensor *s) { output_source_priority_code_ = s; }
+
+  text_sensor::TextSensor *output_source_priority_text_{nullptr};
+  text_sensor::TextSensor *output_source_priority_code_{nullptr};
+
+  void set_debug_last_command(text_sensor::TextSensor *s) { debug_last_command_ = s; }
+  void set_debug_last_response(text_sensor::TextSensor *s) { debug_last_response_ = s; }
+  void set_debug_last_result(text_sensor::TextSensor *s) { debug_last_result_ = s; }
+
+  text_sensor::TextSensor *debug_last_command_{nullptr};
+  text_sensor::TextSensor *debug_last_response_{nullptr};
+  text_sensor::TextSensor *debug_last_result_{nullptr};
+
+  void request_debug_inquiry(const std::string &cmd);
+  void request_debug_dump();
   void set_machine_type(InverterSelect *s) { machine_type_ = s; }
   void set_topology(InverterSelect *s) { topology_ = s; }
   void set_output_mode(InverterSelect *s) { output_mode_ = s; }
@@ -358,6 +376,7 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void add_poll_command(const std::string &cmd, uint32_t interval_ms);
   void send_priority_command(const std::string &cmd);
   void update_energy_history_();
+  static constexpr size_t MAX_PRIORITY_QUEUE = 16;
  private:
   
   InverterSelect *select_;
@@ -428,6 +447,9 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   static std::vector<std::string> split_string(const std::string &s, char delimiter);
   static bool safe_stof(const std::string &s, float &value);
+  static bool is_safe_inquiry_(const std::string &cmd);
+  void publish_debug_(const std::string &command, const std::string &response, const std::string &result);
+  void publish_output_source_priority_(const std::string &raw_code);
  protected:
   std::map<int, InverterSelect*> inverter_selects_by_index_;
 };

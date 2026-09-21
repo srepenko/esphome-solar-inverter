@@ -3,6 +3,7 @@
 // ============================
 
 #include "solar_inverter.h"
+#include "inverter_inquiry_button.h"
 #include "esphome/core/time.h"
 #include <algorithm>
 #include <sstream>
@@ -90,6 +91,7 @@ void SolarInverter::loop() {
   // ─── Таймаут ответа ───
   if (state_ == WAITING_RESPONSE && millis() - last_send_ > RESPONSE_TIMEOUT_MS) {
     ESP_LOGW(TAG, "Таймаут для команди %s", current_command_.c_str());
+    this->publish_debug_(current_command_, "", "TIMEOUT");
     state_ = IDLE;
     current_command_.clear();
     next_command_();
@@ -264,6 +266,11 @@ Date SolarInverter::get_current_date() {
 // Отправка и планирование команд
 // ────────────────────────────────────────────────────────────────
 void SolarInverter::send_priority_command(const std::string &cmd) {
+  if (priority_commands_.size() >= MAX_PRIORITY_QUEUE) {
+    ESP_LOGW(TAG, "UART queue full (%u), dropped '%s'", (unsigned) priority_commands_.size(),
+             cmd.c_str());
+    return;
+  }
   priority_commands_.push(cmd);
 }
 
@@ -317,6 +324,7 @@ void SolarInverter::process_raw_response(const std::string &response) {
       hex_string += buf;
     }
     ESP_LOGI(TAG, "Response HEX: %s", hex_string.c_str());
+    this->publish_debug_(current_command_, hex_string, "CRC_ERROR");
     state_ = IDLE;
     current_command_.clear();
     next_command_();
@@ -326,21 +334,24 @@ void SolarInverter::process_raw_response(const std::string &response) {
   std::string data = response.substr(1, response.length() - 4); // снять '(' и CRC+CR
 
   if (data == "ACK") {
-    ESP_LOGD(TAG, "Отримано ACK для команди [%s]", current_command_.c_str());
+    ESP_LOGI(TAG, "ACK для [%s]", current_command_.c_str());
+    this->publish_debug_(current_command_, "(ACK", "ACK");
     ack_received_ = true;
     state_ = IDLE;
     current_command_.clear();
     return;
   }
   if (data == "NAK") {
-    ESP_LOGW(TAG, "Отримано NAK для команди [%s]", current_command_.c_str());
+    ESP_LOGW(TAG, "NAK для [%s]", current_command_.c_str());
+    this->publish_debug_(current_command_, "(NAK", "NAK");
     ack_received_ = true;
     state_ = IDLE;
     current_command_.clear();
     return;
   }
 
-  ESP_LOGD(TAG, "Отримано відповідь для команди [%s]: %s", current_command_.c_str(), data.c_str());
+  ESP_LOGI(TAG, "DEBUG_INQUIRY [%s] -> %s", current_command_.c_str(), data.c_str());
+  this->publish_debug_(current_command_, data, "DATA");
 
   pending_results_.push({current_command_, data});
   state_ = IDLE;
@@ -600,7 +611,10 @@ void SolarInverter::publish_next_qpiri_chunk_() {
     case 13: publish_number(max_ac_charging_current_, 13); break;      // PPP    (11) Current max AC charging current
     case 14: publish_number(max_charging_current_, 14); break;         // QQ0    (02) Current max charging current
     case 15: publish_select(input_voltage_range_, 15); break;          // O      (03) Input voltage range 0: Appliance  1: UPS
-    case 16: publish_select(output_source_priority_, 16); break;       // P (01) 0 USB/POP00 1 SUB/POP01 2 SBU/POP02 3 UtS hybrid/POP03
+    case 16: publish_select(output_source_priority_, 16);
+             if (16 < this->qpiri_parts_.size())
+               this->publish_output_source_priority_(this->qpiri_parts_[16]);
+             break;  // P (01) 0 USB/POP00 1 SUB/POP01 2 SBU/POP02 3 SolarBatUtility* (LCD UtS; no MAX POP03)
     case 17: publish_select(charger_source_priority_, 17); break;      // Q      (16) Charger source priority 1: Solar + Utility (SNU) 2: Only Solar (OSO) 3|0: Solar first (CSO)
     case 18: publish_sensor(parallel_max_number_, 18); break;          // R      Parallel max number 
     case 19: publish_select(machine_type_, 19); break;                 // SS     Machine type 00: Grid tie; 01: Off Grid; 10: Hybrid
@@ -850,31 +864,129 @@ void SolarInverter::set_flag(char flag, bool enabled) {
 
 void SolarInverter::add_inverter_select(int index, InverterSelect *sel) {
   (void) index;
-//  this->inverter_selects_by_index_[index] = sel;  // сохраняем по индексу
 
   const std::string prefix = sel->get_command_prefix();
   const auto params = sel->get_parameters();
+  const auto set_commands = sel->get_set_commands();
   const auto options = sel->get_options_list();
   const std::string field_name = sel->get_field_name();
   const std::string status_command = sel->get_status_command();
 
-  sel->set_on_user_select_callback([this, prefix, params, options, field_name, status_command](const std::string &value) {
-    auto it = std::find(options.begin(), options.end(), value);
-    if (it != options.end()) {
-      int idx = std::distance(options.begin(), it);
-      if (idx >= 0 && idx < static_cast<int>(params.size())) {
-        std::string command = prefix + params[idx];
+  sel->set_on_user_select_callback(
+      [this, prefix, params, set_commands, options, field_name, status_command](const std::string &value) {
+        auto it = std::find(options.begin(), options.end(), value);
+        if (it == options.end()) {
+          ESP_LOGW(TAG, "Value '%s' not found in options for '%s'", value.c_str(), field_name.c_str());
+          return;
+        }
+        int idx = std::distance(options.begin(), it);
+        if (idx < 0 || idx >= static_cast<int>(params.size())) {
+          ESP_LOGW(TAG, "Index %d out of range for select '%s'", idx, field_name.c_str());
+          return;
+        }
+
+        std::string command;
+        if (idx < static_cast<int>(set_commands.size()))
+          command = set_commands[idx];
+        else if (!prefix.empty())
+          command = prefix + params[idx];
+
+        if (command.empty()) {
+          ESP_LOGW(TAG,
+                   "Select '%s': '%s' (QPIRI code %s) has no SET command — not sending invented POP/PGR. "
+                   "Set the LCD, then Debug QPIRI.",
+                   field_name.c_str(), value.c_str(), params[idx].c_str());
+          if (!status_command.empty())
+            this->send_priority_command(status_command);
+          return;
+        }
+
         this->send_priority_command(command);
         if (!status_command.empty())
           this->send_priority_command(status_command);
-        ESP_LOGD(TAG, "Select '%s': '%s' -> '%s'", field_name.c_str(), value.c_str(), command.c_str());
-      } else {
-        ESP_LOGW(TAG, "Index %d out of range for select '%s'", idx, field_name.c_str());
-      }
-    } else {
-      ESP_LOGW(TAG, "Value '%s' not found in options for '%s'", value.c_str(), field_name.c_str());
-    }
-  });
+        ESP_LOGI(TAG, "Select '%s': '%s' SET '%s' (QPIRI code %s)", field_name.c_str(), value.c_str(),
+                 command.c_str(), params[idx].c_str());
+      });
+}
+
+void InverterInquiryButton::press_action() {
+  if (this->parent_ == nullptr)
+    return;
+  if (this->dump_all_)
+    this->parent_->request_debug_dump();
+  else
+    this->parent_->request_debug_inquiry(this->cmd_);
+}
+
+bool SolarInverter::is_safe_inquiry_(const std::string &cmd) {
+  static const char *const kSafe[] = {
+      "QPI",     "QID",      "QVFW",    "QVFW2",    "QVFW3",     "QMN",     "QGMN",   "QMOD",
+      "QFLAG",   "QPIRI",    "QPIGS",   "QPIGS2",   "QPIWS",     "QBEQI",   "QT",     "QDI",
+      "QOPPT",   "QCHPT",    "QMCHGCR", "QMUCHGCR", "QBOOT",     "QOPM",    "QET",    "QEY",
+      "QEM",     "QED",      "QGO",
+  };
+  for (const char *s : kSafe) {
+    if (cmd == s)
+      return true;
+  }
+  return false;
+}
+
+void SolarInverter::publish_debug_(const std::string &command, const std::string &response,
+                                   const std::string &result) {
+  ESP_LOGI(TAG, "DEBUG_INQUIRY cmd=%s result=%s resp=%s", command.c_str(), result.c_str(),
+           response.c_str());
+  if (this->debug_last_command_)
+    this->debug_last_command_->publish_state(command);
+  if (this->debug_last_response_)
+    this->debug_last_response_->publish_state(response.empty() ? result : response);
+  if (this->debug_last_result_)
+    this->debug_last_result_->publish_state(result);
+}
+
+void SolarInverter::request_debug_inquiry(const std::string &cmd) {
+  if (!is_safe_inquiry_(cmd)) {
+    ESP_LOGW(TAG, "Debug refused non-inquiry command '%s'", cmd.c_str());
+    this->publish_debug_(cmd, "", "REFUSED");
+    return;
+  }
+  ESP_LOGI(TAG, "DEBUG_INQUIRY queue %s", cmd.c_str());
+  this->send_priority_command(cmd);
+}
+
+void SolarInverter::request_debug_dump() {
+  static const char *const kDump[] = {
+      "QPI", "QID", "QVFW", "QVFW2", "QMN", "QGMN", "QMOD", "QFLAG", "QPIRI", "QPIGS",
+      "QPIWS", "QBEQI", "QT", "QDI", "QOPPT", "QMCHGCR", "QMUCHGCR",
+  };
+  ESP_LOGI(TAG, "DEBUG_INQUIRY dump %u safe inquiries", (unsigned) (sizeof(kDump) / sizeof(kDump[0])));
+  for (const char *cmd : kDump)
+    this->request_debug_inquiry(cmd);
+}
+
+void SolarInverter::publish_output_source_priority_(const std::string &raw_code) {
+  if (this->output_source_priority_code_)
+    this->output_source_priority_code_->publish_state(raw_code);
+
+  auto strip = [](std::string s) {
+    size_t i = 0;
+    while (i + 1 < s.size() && s[i] == '0')
+      i++;
+    return s.substr(i);
+  };
+  const std::string code = strip(raw_code);
+  const char *text = "Неизвестный код программы 01";
+  if (code == "0")
+    text = "USB — сеть сначала (Utility → Solar → Battery). Команда POP00.";
+  else if (code == "1")
+    text = "SUB — сначала солнце (Solar → Utility → Battery). Команда POP01.";
+  else if (code == "2")
+    text = "SBU — солнце, затем батарея (Solar → Battery → Utility). Команда POP02.";
+  else if (code == "3")
+    text = "UtS / SolarBatUtility* (QPIRI 3). MAX POP не документирует POP03 — SET с HA не шлём.";
+  ESP_LOGI(TAG, "QPIRI[16] program 01 raw='%s' decoded='%s'", raw_code.c_str(), text);
+  if (this->output_source_priority_text_)
+    this->output_source_priority_text_->publish_state(text);
 }
 
 

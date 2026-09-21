@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import uart, sensor, text_sensor, binary_sensor, switch, select, number
+from esphome.components import uart, sensor, text_sensor, binary_sensor, switch, select, number, button
 from esphome.const import (
     CONF_ID,
     CONF_UART_ID,
@@ -9,6 +9,8 @@ from esphome.const import (
     CONF_STEP,
     CONF_UNIT_OF_MEASUREMENT,
     CONF_MODE,
+    ENTITY_CATEGORY_CONFIG,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 
 
@@ -21,19 +23,27 @@ NUMBER_MODES = {
 }
 
 DEPENDENCIES = ['uart']
-AUTO_LOAD = ['sensor', 'text_sensor', 'binary_sensor', 'switch', 'select', 'number']
+AUTO_LOAD = ['sensor', 'text_sensor', 'binary_sensor', 'switch', 'select', 'number', 'button']
 
 solar_inverter_ns = cg.esphome_ns.namespace('solar_inverter')
 SolarInverter = solar_inverter_ns.class_('SolarInverter', cg.Component, uart.UARTDevice)
 InverterSelect = solar_inverter_ns.class_("InverterSelect", select.Select)
 InverterSwitch = solar_inverter_ns.class_("InverterSwitch", switch.Switch)
 InverterNumber = solar_inverter_ns.class_("InverterNumber", number.Number)
+InverterInquiryButton = solar_inverter_ns.class_("InverterInquiryButton", button.Button)
 
-INVERTER_SWITCH_SCHEMA = lambda icon: switch.switch_schema(InverterSwitch, icon=icon)
-INVERTER_NUMBER_SCHEMA = number.number_schema(InverterNumber).extend({
+INVERTER_SWITCH_SCHEMA = lambda icon: switch.switch_schema(
+    InverterSwitch, icon=icon, entity_category=ENTITY_CATEGORY_CONFIG
+)
+INVERTER_NUMBER_SCHEMA = number.number_schema(
+    InverterNumber, entity_category=ENTITY_CATEGORY_CONFIG
+).extend({
     cv.GenerateID("parent"): cv.use_id(SolarInverter),
     cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
 })
+INVERTER_DEBUG_BUTTON_SCHEMA = button.button_schema(
+    InverterInquiryButton, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:serial-port"
+)
 
 
 CONFIG_SCHEMA = cv.Schema({
@@ -41,9 +51,12 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
 
     # text_sensors
-    cv.Optional('protocol_id'): text_sensor.text_sensor_schema(),
-    cv.Optional('serial_number'): text_sensor.text_sensor_schema(),
-    cv.Optional('eeprom_version_text'): text_sensor.text_sensor_schema(),
+    cv.Optional('protocol_id'): text_sensor.text_sensor_schema(
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional('serial_number'): text_sensor.text_sensor_schema(
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional('eeprom_version_text'): text_sensor.text_sensor_schema(
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
     cv.Optional('charging_mode_text'): text_sensor.text_sensor_schema(),
 
     # sensors
@@ -148,12 +161,42 @@ CONFIG_SCHEMA = cv.Schema({
     #QPIWS
     cv.Optional('warning_status_text'): text_sensor.text_sensor_schema(),
 
-    cv.Optional("equalization_enable"): select.select_schema(InverterSelect),
-    cv.Optional("equalization_active"): select.select_schema(InverterSelect),
-    # QPIRI P / program 01 — POP00..POP03 (USB, SUB, SBU, UtS)
+    cv.Optional("equalization_enable"): select.select_schema(
+        InverterSelect, entity_category=ENTITY_CATEGORY_CONFIG),
+    cv.Optional("equalization_active"): select.select_schema(
+        InverterSelect, entity_category=ENTITY_CATEGORY_CONFIG),
+    # Program 01: QPIRI field 16. SET only POP00/01/02 (MAX). QPIRI 3 = LCD UtS, no POP03.
     cv.Optional("output_source_priority"): select.select_schema(
-        InverterSelect, icon="mdi:transmission-tower"
+        InverterSelect, icon="mdi:transmission-tower", entity_category=ENTITY_CATEGORY_CONFIG
     ),
+    cv.Optional("output_source_priority_text"): text_sensor.text_sensor_schema(
+        icon="mdi:text-box-outline", entity_category=ENTITY_CATEGORY_CONFIG),
+    cv.Optional("output_source_priority_code"): text_sensor.text_sensor_schema(
+        icon="mdi:numeric", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+
+    cv.Optional("debug_last_command"): text_sensor.text_sensor_schema(
+        icon="mdi:console", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional("debug_last_response"): text_sensor.text_sensor_schema(
+        icon="mdi:console", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional("debug_last_result"): text_sensor.text_sensor_schema(
+        icon="mdi:check-decagram", entity_category=ENTITY_CATEGORY_DIAGNOSTIC),
+    cv.Optional("debug_query_qpi"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qid"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qvfw"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qvfw2"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qmn"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qgmn"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qmod"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qflag"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qpiri"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qpigs"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qpiws"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qbeqi"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qdi"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qoppt"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qmchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_query_qmuchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_dump_inquiries"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA,
     cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA,
     cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA,
@@ -204,6 +247,11 @@ async def to_code(config):
         'eeprom_version_text': 'set_eeprom_version_text',
         'charging_mode_text': 'set_charging_mode_text_sensor',
         'warning_status_text': 'set_warning_status_text_sensor',
+        'output_source_priority_text': 'set_output_source_priority_text',
+        'output_source_priority_code': 'set_output_source_priority_code',
+        'debug_last_command': 'set_debug_last_command',
+        'debug_last_response': 'set_debug_last_response',
+        'debug_last_result': 'set_debug_last_result',
     }
     for key, setter in text_sensors.items():
         if key in config:
@@ -274,6 +322,7 @@ async def to_code(config):
         'equalization_enable': {
             'options': ["Disabled", "Enabled"],
             'parameters': ["0", "1"],
+            'set_commands': ["PBEQE0", "PBEQE1"],
             'command_prefix': "PBEQE",
             'command_status': "QBEQI",
             'request_index': 0,
@@ -281,15 +330,23 @@ async def to_code(config):
         'equalization_active': {
             'options': ["Inactive", "Active"],
             'parameters': ["0", "1"],
+            'set_commands': ["PBEQA0", "PBEQA1"],
             'command_prefix': "PBEQA",
             'command_status': "QBEQI",
             'request_index': 9,
         },
-        # Prefix POP0 + QPIRI code 0..3 → POP00..POP03. LCD UtS is protocol 3 (hybrid).
+        # QPIRI field 16 (program 01). MAX POP is only 00/01/02.
+        # Value 3 on main is SolarBatUtility* (LCD UtS). Do not send POP03.
         'output_source_priority': {
-            'options': ["USB", "SUB", "SBU", "UtS"],
+            'options': [
+                "USB — сеть сначала",
+                "SUB — сначала солнце",
+                "SBU — солнце, затем батарея",
+                "UtS — солнце, сеть когда нет PV",
+            ],
             'parameters': ["0", "1", "2", "3"],
-            'command_prefix': "POP0",
+            'set_commands': ["POP00", "POP01", "POP02", ""],
+            'command_prefix': "POP",
             'command_status': "QPIRI",
             'request_index': 16,
         },
@@ -298,16 +355,15 @@ async def to_code(config):
         if field in config:
             conf = config[field]
             sel = cg.new_Pvariable(conf[CONF_ID])
-            #await cg.register_component(sel, conf)
             await select.register_select(sel, conf, options=opt_data['options'])
             cg.add(sel.set_options_list(opt_data['options']))
             cg.add(sel.set_command_prefix(opt_data['command_prefix']))
             cg.add(sel.set_parameters(opt_data['parameters']))
+            cg.add(sel.set_set_commands(opt_data.get('set_commands', [])))
             cg.add(sel.set_field_name(field))
             if opt_data.get('command_status'):
                 cg.add(sel.set_status_command(opt_data['command_status']))
             cg.add(var.add_inverter_select(opt_data['request_index'], sel))
-            # Автоматически вызвать set_<field>()
             setter_name = f"set_{field}"
             if hasattr(var, setter_name):
                 cg.add(getattr(var, setter_name)(sel))
@@ -322,19 +378,20 @@ async def to_code(config):
             sens = await sensor.new_sensor(config[key])
             cg.add(getattr(var, setter)(sens))
 
-    # Number fields
+    # Number fields: min/max/step from Voltronic/MAX + this component's P* commands.
+    # Formats use float specifiers (control() passes float). pipsolar-style ranges.
     number_fields = {
-        'equalization_voltage': {       'fmt': "%2.2f", 'cmd': "PBEQV", 'min': 48.0, 'max': 61.0, 'step': 0.1, 'unit': "V"},
-        'equalization_time': {          'fmt': "%3d", 'cmd': "PBEQT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
-        'equalization_over_time': {     'fmt': "%3d", 'cmd': "PBEQOT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
-        'equalization_period': {        'fmt': "%3d", 'cmd': "PBEQP", 'min': 0, 'max': 90, 'step': 1, 'unit': "d"},
-        # QPIRI
-        'battery_recharge_voltage': {   'fmt': "%2.1f", 'cmd': "PBCV", 'min': 42, 'max': 51, 'step': 1, 'unit': "V"},
-        'battery_redischarge_voltage': {'fmt': "%2.1f", 'cmd': "PBDV", 'min': 48, 'max': 58, 'step': 1, 'unit': "V"},
-        'max_charging_current': {       'fmt': "%3d", 'cmd': "MNCHGC", 'min': 10, 'max': 120, 'step': 10, 'unit': "A"},
-        'max_ac_charging_current': {    'fmt': "%3d", 'cmd': "MUCHGC", 'min': 2, 'max': 100, 'step': 10, 'unit': "A"},
-        'ac_output_rating_frequency': { 'fmt': "%2d", 'cmd': "F", 'min': 50, 'max': 60, 'step': 10, 'unit': "Hz"},
-        'ac_output_rating_voltage': {   'fmt': "%3d", 'cmd': "V", 'min': 220, 'max': 240, 'step': 10, 'unit': "V"},
+        'equalization_voltage': {       'fmt': "%.2f", 'cmd': "PBEQV", 'min': 48.0, 'max': 61.0, 'step': 0.1, 'unit': "V"},
+        'equalization_time': {          'fmt': "%03.0f", 'cmd': "PBEQT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
+        'equalization_over_time': {     'fmt': "%03.0f", 'cmd': "PBEQOT", 'min': 5, 'max': 900, 'step': 5, 'unit': "min"},
+        'equalization_period': {        'fmt': "%03.0f", 'cmd': "PBEQP", 'min': 0, 'max': 90, 'step': 1, 'unit': "d"},
+        # QPIRI writable setpoints (48V MAX / pipsolar)
+        'battery_recharge_voltage': {   'fmt': "%02.1f", 'cmd': "PBCV", 'min': 44, 'max': 51, 'step': 1, 'unit': "V"},
+        'battery_redischarge_voltage': {'fmt': "%02.1f", 'cmd': "PBDV", 'min': 48, 'max': 58, 'step': 1, 'unit': "V"},
+        'max_charging_current': {       'fmt': "%03.0f", 'cmd': "MNCHGC", 'min': 10, 'max': 120, 'step': 10, 'unit': "A"},
+        'max_ac_charging_current': {    'fmt': "%03.0f", 'cmd': "MUCHGC", 'min': 10, 'max': 100, 'step': 10, 'unit': "A"},
+        'ac_output_rating_frequency': { 'fmt': "%02.0f", 'cmd': "F", 'min': 50, 'max': 60, 'step': 10, 'unit': "Hz"},
+        'ac_output_rating_voltage': {   'fmt': "%03.0f", 'cmd': "V", 'min': 220, 'max': 240, 'step': 10, 'unit': "V"},
     }
 
 
@@ -343,7 +400,6 @@ async def to_code(config):
             nconf = config[field]
             num = cg.new_Pvariable(nconf[CONF_ID])
 
-            # Регистрируем number-сущность с параметрами min/max/step, если они заданы
             await number.register_number(
                 num,
                 nconf,
@@ -357,11 +413,38 @@ async def to_code(config):
             cg.add(num.set_command_prefix(props['cmd']))
             cg.add(num.set_format(props['fmt']))
             if props['unit']:
-                num.traits.set_unit_of_measurement(props['unit'])
-            num.traits.set_mode(nconf[CONF_MODE])
+                cg.add(num.traits.set_unit_of_measurement(props['unit']))
+            cg.add(num.traits.set_mode(nconf[CONF_MODE]))
 
             setter_name = f"set_{field}"
             if hasattr(var, setter_name):
                 cg.add(getattr(var, setter_name)(num))
+
+    debug_buttons = {
+        'debug_query_qpi': ('QPI', False),
+        'debug_query_qid': ('QID', False),
+        'debug_query_qvfw': ('QVFW', False),
+        'debug_query_qvfw2': ('QVFW2', False),
+        'debug_query_qmn': ('QMN', False),
+        'debug_query_qgmn': ('QGMN', False),
+        'debug_query_qmod': ('QMOD', False),
+        'debug_query_qflag': ('QFLAG', False),
+        'debug_query_qpiri': ('QPIRI', False),
+        'debug_query_qpigs': ('QPIGS', False),
+        'debug_query_qpiws': ('QPIWS', False),
+        'debug_query_qbeqi': ('QBEQI', False),
+        'debug_query_qdi': ('QDI', False),
+        'debug_query_qoppt': ('QOPPT', False),
+        'debug_query_qmchgcr': ('QMCHGCR', False),
+        'debug_query_qmuchgcr': ('QMUCHGCR', False),
+        'debug_dump_inquiries': ('', True),
+    }
+    for key, (cmd, dump_all) in debug_buttons.items():
+        if key in config:
+            btn = await button.new_button(config[key])
+            cg.add(btn.set_parent(var))
+            cg.add(btn.set_inquiry_command(cmd))
+            cg.add(btn.set_dump_all(dump_all))
+
 
 
