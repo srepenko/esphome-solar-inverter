@@ -286,8 +286,12 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   void request_debug_inquiry(const std::string &cmd);
   void request_debug_dump();
-  // One safe SET (POP00–03 / PCP00–03) via UART priority queue, then QPIRI+QFLAG.
+  // One safe SET (POP## / PCP##, ## = 00–99) via UART priority queue, then QPIRI+QFLAG.
+  // Immediate ACK/NAK stays on debug_last_*; follow-up inquiries do not overwrite them.
   void request_set_probe(const std::string &cmd);
+  // Build PREFIX+NN from debug_probe_nn (e.g. "POP" + 3 → "POP03").
+  void request_set_probe_with_nn(const std::string &prefix);
+  void set_debug_probe_nn(InverterNumber *n) { debug_probe_nn_ = n; }
   void set_machine_type(InverterSelect *s) { machine_type_ = s; }
   void set_topology(InverterSelect *s) { topology_ = s; }
   void set_output_mode(InverterSelect *s) { output_mode_ = s; }
@@ -412,11 +416,13 @@ class SolarInverter : public uart::UARTDevice, public Component {
 
   //  ─── Ответы, ожидающие публикации ───
   std::string last_qpigs_data_;
+  std::vector<std::string> qpigs_parts_;
   bool qpigs_ready_{false};
   size_t qpigs_publish_index_{0};
 
   // Для пошаговой публикации QBEQI
   std::string last_qbeqi_data_;
+  std::vector<std::string> qbeqi_parts_;
   bool qbeqi_ready_{false};
   size_t qbeqi_publish_index_{0};
 
@@ -424,6 +430,25 @@ class SolarInverter : public uart::UARTDevice, public Component {
   std::string last_qpiri_data_;
   bool qpiri_ready_{false};
   size_t qpiri_publish_index_{0};
+
+  // QFLAG: parse once, publish one switch per tick
+  std::string last_qflag_data_;
+  bool qflag_on_[128]{};
+  bool qflag_ready_{false};
+  size_t qflag_publish_index_{0};
+
+  // Defer CRC/parse off the RX tick (frame complete → next loop).
+  std::string pending_raw_frame_;
+  bool raw_frame_pending_{false};
+
+  // Energy: never flash in UART path; one NVS write per deferred step.
+  bool energy_save_pending_{false};
+  uint8_t energy_save_index_{0};
+  uint8_t energy_publish_index_{0};
+  uint32_t last_energy_update_ms_{0};
+  uint32_t last_energy_save_ms_{0};
+  uint32_t last_energy_day_{0}, last_energy_month_{0}, last_energy_year_{0};
+  uint32_t last_energy_loop_ms_{0};
 
   //  ─── Таймауты / лимиты loop() (2400 baud MAX/TTN clone) ───
   // At 2400 baud a long QPIGS frame alone is ~0.4–0.5 s on the wire.
@@ -433,17 +458,21 @@ class SolarInverter : public uart::UARTDevice, public Component {
   static constexpr uint32_t POST_ERROR_SETTLE_MS = 700;
   static constexpr uint32_t POST_SET_PROBE_SETTLE_MS = 600;
   static constexpr uint32_t SET_PROBE_COOLDOWN_MS = 2000;
-  // ESPHome warns at ~50 ms; exit early and split work so we stay under.
-  static constexpr uint32_t MAX_LOOP_MS = 45;
+  // ESPHome warns at ~50 ms; keep headroom (RX / CRC / publish / TX are separate ticks).
+  static constexpr uint32_t MAX_LOOP_MS = 35;
   static constexpr size_t MAX_RX_FRAME = 256;
   static constexpr uint8_t QBEQI_NAK_DISABLE_AFTER = 3;
   static constexpr uint32_t POLL_NAK_INTERVAL_MIN_MS = 15000;
   static constexpr uint32_t POLL_NAK_INTERVAL_MAX_MS = 60000;
+  static constexpr uint32_t ENERGY_SAVE_STEP_MS = 80;
 
   // One SET probe at a time (no POP/PCP flood).
   bool set_probe_pending_{false};
   std::string set_probe_command_;
   uint32_t last_set_probe_done_ms_{0};
+  // After SET ACK/NAK, keep debug_last_* on that reply until next manual debug/probe.
+  bool hold_set_probe_debug_{false};
+  InverterNumber *debug_probe_nn_{nullptr};
 
   //  ─── Внутренние методы ───
   void next_command_();
@@ -463,15 +492,18 @@ class SolarInverter : public uart::UARTDevice, public Component {
   
   //  Публикация частями
   void publish_next_qpigs_chunk_();
-  void process_qpigs_status_bits_(const std::string &bits);
+  void process_qpigs_status_bits_part_(const std::string &bits, uint8_t part);
   void process_qpigs_flag_bits_(const std::string &bits);
   void process_qmod_(const std::string &payload);
-  void process_qflag_(const std::string &payload);
+  void process_qflag_parse_(const std::string &payload);
+  void publish_next_qflag_chunk_();
   std::string decode_qpiws_(const std::string &bits);
   void publish_next_qbeqi_chunk_();
   void publish_next_qpiri_chunk_();
   void setup_qflag_switches();
-
+  void schedule_energy_save_();
+  void save_energy_step_();
+  bool uart_busy_() const;
   //  CRC / utils
   static uint16_t calculate_crc(const std::string &cmd);
   static uint16_t cal_crc_half(const uint8_t *data, size_t len);

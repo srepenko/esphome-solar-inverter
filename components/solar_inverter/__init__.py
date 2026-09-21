@@ -45,6 +45,12 @@ INVERTER_NUMBER_SCHEMA = lambda unit: number.number_schema(
 INVERTER_DEBUG_BUTTON_SCHEMA = button.button_schema(
     InverterInquiryButton, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:serial-port"
 )
+# Probe NN suffix only (0–99); local HA value, no UART until POP/PCP button pressed.
+INVERTER_PROBE_NN_SCHEMA = number.number_schema(
+    InverterNumber, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:numeric"
+).extend({
+    cv.Optional(CONF_MODE, default="BOX"): cv.enum(number.NUMBER_MODES, upper=True),
+})
 
 
 CONFIG_SCHEMA = cv.Schema({
@@ -198,15 +204,10 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional("debug_query_qmchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_query_qmuchgcr"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("debug_dump_inquiries"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    # Safe one-shot SET probes (POP program 01 / PCP program 16). Not wired to UtS select.
-    cv.Optional("debug_probe_pop00"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pop01"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pop02"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pop03"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pcp00"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pcp01"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pcp02"): INVERTER_DEBUG_BUTTON_SCHEMA,
-    cv.Optional("debug_probe_pcp03"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    # SET probes: NN (0–99) + POP / PCP buttons. Replaces debug_probe_pop00…03 / pcp00…03.
+    cv.Optional("debug_probe_nn"): INVERTER_PROBE_NN_SCHEMA,
+    cv.Optional("debug_probe_pop"): INVERTER_DEBUG_BUTTON_SCHEMA,
+    cv.Optional("debug_probe_pcp"): INVERTER_DEBUG_BUTTON_SCHEMA,
     cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA("V"),
     cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA("min"),
     cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA("min"),
@@ -427,41 +428,46 @@ async def to_code(config):
             if hasattr(var, setter_name):
                 cg.add(getattr(var, setter_name)(num))
 
+    # Local-only NN for SET probes (no UART on change).
+    if "debug_probe_nn" in config:
+        nconf = config["debug_probe_nn"]
+        num = cg.new_Pvariable(nconf[CONF_ID])
+        await number.register_number(num, nconf, min_value=0, max_value=99, step=1)
+        cg.add(num.set_parent(var))
+        cg.add(num.set_local_only(True))
+        cg.add(var.set_debug_probe_nn(num))
+
     debug_buttons = {
-        'debug_query_qpi': ('QPI', False, False),
-        'debug_query_qid': ('QID', False, False),
-        'debug_query_qvfw': ('QVFW', False, False),
-        'debug_query_qvfw2': ('QVFW2', False, False),
-        'debug_query_qmn': ('QMN', False, False),
-        'debug_query_qgmn': ('QGMN', False, False),
-        'debug_query_qmod': ('QMOD', False, False),
-        'debug_query_qflag': ('QFLAG', False, False),
-        'debug_query_qpiri': ('QPIRI', False, False),
-        'debug_query_qpigs': ('QPIGS', False, False),
-        'debug_query_qpiws': ('QPIWS', False, False),
-        'debug_query_qbeqi': ('QBEQI', False, False),
-        'debug_query_qdi': ('QDI', False, False),
-        'debug_query_qoppt': ('QOPPT', False, False),
-        'debug_query_qmchgcr': ('QMCHGCR', False, False),
-        'debug_query_qmuchgcr': ('QMUCHGCR', False, False),
-        'debug_dump_inquiries': ('', True, False),
-        # SET probes: one POP/PCP at a time via UART queue; auto QPIRI+QFLAG after ACK/NAK.
-        'debug_probe_pop00': ('POP00', False, True),
-        'debug_probe_pop01': ('POP01', False, True),
-        'debug_probe_pop02': ('POP02', False, True),
-        'debug_probe_pop03': ('POP03', False, True),
-        'debug_probe_pcp00': ('PCP00', False, True),
-        'debug_probe_pcp01': ('PCP01', False, True),
-        'debug_probe_pcp02': ('PCP02', False, True),
-        'debug_probe_pcp03': ('PCP03', False, True),
+        'debug_query_qpi': ('QPI', False, False, ''),
+        'debug_query_qid': ('QID', False, False, ''),
+        'debug_query_qvfw': ('QVFW', False, False, ''),
+        'debug_query_qvfw2': ('QVFW2', False, False, ''),
+        'debug_query_qmn': ('QMN', False, False, ''),
+        'debug_query_qgmn': ('QGMN', False, False, ''),
+        'debug_query_qmod': ('QMOD', False, False, ''),
+        'debug_query_qflag': ('QFLAG', False, False, ''),
+        'debug_query_qpiri': ('QPIRI', False, False, ''),
+        'debug_query_qpigs': ('QPIGS', False, False, ''),
+        'debug_query_qpiws': ('QPIWS', False, False, ''),
+        'debug_query_qbeqi': ('QBEQI', False, False, ''),
+        'debug_query_qdi': ('QDI', False, False, ''),
+        'debug_query_qoppt': ('QOPPT', False, False, ''),
+        'debug_query_qmchgcr': ('QMCHGCR', False, False, ''),
+        'debug_query_qmuchgcr': ('QMUCHGCR', False, False, ''),
+        'debug_dump_inquiries': ('', True, False, ''),
+        # SET probes: POP/PCP + NN from debug_probe_nn; queue + cooldown; not wired to UtS.
+        'debug_probe_pop': ('', False, True, 'POP'),
+        'debug_probe_pcp': ('', False, True, 'PCP'),
     }
-    for key, (cmd, dump_all, set_probe) in debug_buttons.items():
+    for key, (cmd, dump_all, set_probe, probe_prefix) in debug_buttons.items():
         if key in config:
             btn = await button.new_button(config[key])
             cg.add(btn.set_parent(var))
             cg.add(btn.set_inquiry_command(cmd))
             cg.add(btn.set_dump_all(dump_all))
             cg.add(btn.set_set_probe(set_probe))
+            if probe_prefix:
+                cg.add(btn.set_set_probe_prefix(probe_prefix))
 
 
 

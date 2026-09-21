@@ -417,7 +417,8 @@ solar_inverter:
   #  max_discharging_current:
   #    name: "Max discharging current"
 
-  # ── Debug: inquiry + safe SET probes (POP/PCP 00–03 only). Copy text sensors + лог ──
+  # ── Debug: inquiry + SET probes (NN + POP/PCP). Copy text sensors + лог ──
+  # debug_last_* shows the SET reply (ACK/NAK/…) and is NOT overwritten by auto QPIRI/QFLAG.
   debug_last_command:
     name: "Debug last command"
     web_server:
@@ -471,47 +472,23 @@ solar_inverter:
   debug_query_qmuchgcr:
     name: "Debug QMUCHGCR"
 
-  # Safe SET probes (one at a time, UART queue, ~2s cooldown). After ACK/NAK → QPIRI + QFLAG.
-  # POP §3.12 = program 01 output (00/01/02 known good; POP03 probe-only, expect NAK, never bind UtS).
-  # PCP §3.10 = program 16 charger priority probes (not UtS). POP11/PCP11 not in this repo.
-  debug_probe_pop00:
-    name: "Probe SET POP00"
+  # SET probes: enter NN (00–99), then press POP or PCP. Same UART queue, ~2s cooldown.
+  # POP §3.12 = program 01 (00/01/02 known good; POP03 probe-only, expect NAK, never bind UtS).
+  # PCP §3.10 = program 16 charger probes. Replaces debug_probe_pop00…03 / debug_probe_pcp00…03.
+  debug_probe_nn:
+    name: "Probe SET NN"
+    mode: box
     web_server:
       sorting_group_id: grp_debug
       sorting_weight: 20
-  debug_probe_pop01:
-    name: "Probe SET POP01"
+  debug_probe_pop:
+    name: "Probe SET POP"
     web_server:
       sorting_group_id: grp_debug
       sorting_weight: 21
-  debug_probe_pop02:
-    name: "Probe SET POP02"
+  debug_probe_pcp:
+    name: "Probe SET PCP"
     web_server:
       sorting_group_id: grp_debug
       sorting_weight: 22
-  debug_probe_pop03:
-    name: "Probe SET POP03"
-    web_server:
-      sorting_group_id: grp_debug
-      sorting_weight: 23
-  debug_probe_pcp00:
-    name: "Probe SET PCP00"
-    web_server:
-      sorting_group_id: grp_debug
-      sorting_weight: 24
-  debug_probe_pcp01:
-    name: "Probe SET PCP01"
-    web_server:
-      sorting_group_id: grp_debug
-      sorting_weight: 25
-  debug_probe_pcp02:
-    name: "Probe SET PCP02"
-    web_server:
-      sorting_group_id: grp_debug
-      sorting_weight: 26
-  debug_probe_pcp03:
-    name: "Probe SET PCP03"
-    web_server:
-      sorting_group_id: grp_debug
-      sorting_weight: 27
  
