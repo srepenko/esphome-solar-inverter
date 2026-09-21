@@ -11,6 +11,9 @@ namespace solar_inverter {
      using UserSelectCallback = std::function<void(const std::string &)>;
      void set_command_prefix(const std::string &prefix) { this->command_prefix_ = prefix; }
      const std::string &get_command_prefix() const { return this->command_prefix_; }
+
+     void set_status_command(const std::string &cmd) { this->status_command_ = cmd; }
+     const std::string &get_status_command() const { return this->status_command_; }
    
      void set_parameters(const std::vector<std::string> &params) { this->parameters_ = params; }
      const std::vector<std::string> &get_parameters() const { return this->parameters_; }
@@ -29,9 +32,14 @@ namespace solar_inverter {
    
     void update_state_from_inverter(const std::string &parameter_code) {
       internal_update_ = true;  // чтобы не вызвать callback пользователя при обновлении из инвертора
-      auto it = std::find(parameters_.begin(), parameters_.end(), parameter_code);
-      if (it != parameters_.end()) {
-        int index = std::distance(parameters_.begin(), it);
+      int index = -1;
+      for (size_t i = 0; i < parameters_.size(); i++) {
+        if (param_codes_match_(parameters_[i], parameter_code)) {
+          index = static_cast<int>(i);
+          break;
+        }
+      }
+      if (index >= 0) {
         if (index < static_cast<int>(options_.size())) {
           this->publish_state(options_[index]);
         } else {
@@ -48,7 +56,20 @@ namespace solar_inverter {
      }
    
     protected:
+     static bool param_codes_match_(const std::string &a, const std::string &b) {
+       if (a == b)
+         return true;
+       auto strip_leading_zeros = [](const std::string &s) -> std::string {
+         size_t i = 0;
+         while (i + 1 < s.size() && s[i] == '0')
+           i++;
+         return s.substr(i);
+       };
+       return strip_leading_zeros(a) == strip_leading_zeros(b);
+     }
+
      std::string command_prefix_;
+     std::string status_command_;
      std::vector<std::string> parameters_;
      std::vector<std::string> options_;
      std::string field_name_;

@@ -4,6 +4,7 @@
 
 #include "solar_inverter.h"
 #include "esphome/core/time.h"
+#include <algorithm>
 #include <sstream>
 #include <set>
 #include "esphome/core/preferences.h"
@@ -598,7 +599,7 @@ void SolarInverter::publish_next_qpiri_chunk_() {
     case 13: publish_number(max_ac_charging_current_, 13); break;      // PPP    (11) Current max AC charging current
     case 14: publish_number(max_charging_current_, 14); break;         // QQ0    (02) Current max charging current
     case 15: publish_select(input_voltage_range_, 15); break;          // O      (03) Input voltage range 0: Appliance  1: UPS
-    case 16: publish_select(output_source_priority_, 16); break;       // P      (01) Output source priority 0: UtilitySolarBat 1: SolarUtilityBat 2: SolarBatUtility 3:SolarBatUtility*
+    case 16: publish_select(output_source_priority_, 16); break;       // P (01) 0 USB/POP00 1 SUB/POP01 2 SBU/POP02 3 UtS hybrid/POP03
     case 17: publish_select(charger_source_priority_, 17); break;      // Q      (16) Charger source priority 1: Solar + Utility (SNU) 2: Only Solar (OSO) 3|0: Solar first (CSO)
     case 18: publish_sensor(parallel_max_number_, 18); break;          // R      Parallel max number 
     case 19: publish_select(machine_type_, 19); break;                 // SS     Machine type 00: Grid tie; 01: Off Grid; 10: Hybrid
@@ -847,20 +848,24 @@ void SolarInverter::set_flag(char flag, bool enabled) {
 
 
 void SolarInverter::add_inverter_select(int index, InverterSelect *sel) {
+  (void) index;
 //  this->inverter_selects_by_index_[index] = sel;  // сохраняем по индексу
 
-  const std::string &prefix = sel->get_command_prefix();
-  const auto &params = sel->get_parameters();
-  const auto &options = sel->get_options_list();
-  const std::string &field_name = sel->get_field_name();
+  const std::string prefix = sel->get_command_prefix();
+  const auto params = sel->get_parameters();
+  const auto options = sel->get_options_list();
+  const std::string field_name = sel->get_field_name();
+  const std::string status_command = sel->get_status_command();
 
-  sel->set_on_user_select_callback([this, prefix, params, options, field_name](const std::string &value) {
+  sel->set_on_user_select_callback([this, prefix, params, options, field_name, status_command](const std::string &value) {
     auto it = std::find(options.begin(), options.end(), value);
     if (it != options.end()) {
       int idx = std::distance(options.begin(), it);
       if (idx >= 0 && idx < static_cast<int>(params.size())) {
         std::string command = prefix + params[idx];
-        this->send_command(command);
+        this->send_priority_command(command);
+        if (!status_command.empty())
+          this->send_priority_command(status_command);
         ESP_LOGD(TAG, "Select '%s': '%s' -> '%s'", field_name.c_str(), value.c_str(), command.c_str());
       } else {
         ESP_LOGW(TAG, "Index %d out of range for select '%s'", idx, field_name.c_str());

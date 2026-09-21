@@ -150,6 +150,10 @@ CONFIG_SCHEMA = cv.Schema({
 
     cv.Optional("equalization_enable"): select.select_schema(InverterSelect),
     cv.Optional("equalization_active"): select.select_schema(InverterSelect),
+    # QPIRI P / program 01 — POP00..POP03 (USB, SUB, SBU, UtS)
+    cv.Optional("output_source_priority"): select.select_schema(
+        InverterSelect, icon="mdi:transmission-tower"
+    ),
     cv.Optional("equalization_voltage"): INVERTER_NUMBER_SCHEMA,
     cv.Optional("equalization_time"): INVERTER_NUMBER_SCHEMA,
     cv.Optional("equalization_over_time"): INVERTER_NUMBER_SCHEMA,
@@ -276,6 +280,14 @@ async def to_code(config):
             'command_status': "QBEQI",
             'request_index': 9,
         },
+        # Prefix POP0 + QPIRI code 0..3 → POP00..POP03. LCD UtS is protocol 3 (hybrid).
+        'output_source_priority': {
+            'options': ["USB", "SUB", "SBU", "UtS"],
+            'parameters': ["0", "1", "2", "3"],
+            'command_prefix': "POP0",
+            'command_status': "QPIRI",
+            'request_index': 16,
+        },
     }
     for field, opt_data in select_fields_options.items():
         if field in config:
@@ -285,7 +297,10 @@ async def to_code(config):
             await select.register_select(sel, conf, options=opt_data['options'])
             cg.add(sel.set_options_list(opt_data['options']))
             cg.add(sel.set_command_prefix(opt_data['command_prefix']))
-            cg.add(sel.set_parameters(opt_data['parameters'])) 
+            cg.add(sel.set_parameters(opt_data['parameters']))
+            cg.add(sel.set_field_name(field))
+            if opt_data.get('command_status'):
+                cg.add(sel.set_status_command(opt_data['command_status']))
             cg.add(var.add_inverter_select(opt_data['request_index'], sel))
             # Автоматически вызвать set_<field>()
             setter_name = f"set_{field}"
