@@ -2,7 +2,8 @@ substitutions:
   name: ttn-inverter
   inv_id: ttn-inverter
   device_description: "Hybrid inverter via MAX communication"
-  external_components_source: github://srepenko/esphome-solar-inverter@main
+  # Use @work until schema API + program 01 land on main (PR #3). Switch to @main after that merge.
+  external_components_source: github://srepenko/esphome-solar-inverter@work
   
 esphome:
   name: ${name}
@@ -79,14 +80,16 @@ uart:
 solar_inverter:
   id: solar_inv
   uart_id: uart_bus
-#  protocol_id:
-#    name: "Protocol ID"
-#  serial_number:
-#    name: "Serial Number"
+  protocol_id:
+    name: "Protocol ID"
+  serial_number:
+    name: "Serial Number"
+  eeprom_version_text:
+    name: "EEPROM version"
 
-  #QMOD
-#  device_mode_sensor:
-#    name: "Device Mode inquiry RAW"
+  # QMOD
+  device_mode_sensor:
+    name: "Device Mode inquiry RAW"
   device_mode_text:
     name: "Device Mode inquiry"
 
@@ -112,15 +115,15 @@ solar_inverter:
   data_log_popup:
     name: "Data Log Pop-up"
   grid_charge_enable:
-    name: "Grid Charge Enable"  # не нашел описание
+    name: "Grid Charge Enable"  # QFLAG; no matching item in the Ukrainian manual
   solar_feed_to_grid:
-    name: "Solar Feed to Grid"   # не нашел описание
+    name: "Solar Feed to Grid"   # QFLAG; no matching item in the Ukrainian manual
 
-## QPIWS Sensor
+  # QPIWS
   warning_status_text:
     name: "Inverter Warnings"
 
-## QBEQI
+  # QBEQI
   equalization_enable:
     name: "Battery equalization"
   equalization_voltage:
@@ -133,9 +136,12 @@ solar_inverter:
     name: "Equalization timeout"
   equalization_active:
     name: "Equalization activated immediately"
+  equalization_max_current:
+    name: "Equalization max current"
+  equalization_elapsed_time:
+    name: "Equalization elapsed time"
 
-
-## QPIGS Sensors
+  # QPIGS
   grid_voltage:
     name: "Grid Voltage"
   grid_freq:
@@ -150,46 +156,52 @@ solar_inverter:
     name: "Active Power"
   output_load_percent:
     name: "Load %"
-#  bus_voltage:
-#    name: "Solar Inverter Bus Voltage"
+  bus_voltage:
+    name: "Solar Inverter Bus Voltage"
   battery_voltage:
     name: "Battery Voltage"
   battery_charging_current:
     name: "Battery Charging Current"
   battery_capacity:
     name: "Battery Capacity"
-#  inverter_temp:
-#    name: "Inverter Heatsink Temperature"
+  inverter_temp:
+    name: "Inverter Heatsink Temperature"
   pv_input_current:
     name: "PV Input Current"
   pv_input_voltage:
     name: "PV Input Voltage"
-#  battery_voltage_from_scc:
-#    name: "Battery Voltage SCC"
+  battery_voltage_from_scc:
+    name: "Battery Voltage SCC"
   battery_discharge_current:
     name: "Battery Discharge Current"
-#  pv_or_ac_powering_load:
-#    name: "PV or AC feed the load"
-#  config_changed:
-#    name: "Configuration status"
-#  scc_fw_updated:
-#    name: " SCC  firmware  version"
-#  load_on:
-#    name: "Load status"
+  pv_or_ac_powering_load:
+    name: "PV or AC feed the load"
+  config_changed:
+    name: "Configuration status"
+  scc_fw_updated:
+    name: "SCC firmware updated"
+  load_on:
+    name: "Load status"
+  charging_on:
+    name: "Charging On"
+  scc_charging_on:
+    name: "SCC Charging On"
+  ac_charging_on:
+    name: "AC Charging On"
+  charging_mode_sensor:
+    name: "Charging Mode Code"
   charging_mode_text:
     name: "Charging Mode"
-#  fan_on_voltage_offset:
-#    name: "Battery  voltage  offset for fans on "
-#  eeprom_version_text:
-#    name: "EEPROM version"
+  fan_on_voltage_offset:
+    name: "Battery voltage offset for fans on"
   pv_charging_power:
     name: "PV Charging power"
-#  charging_to_float
-#    name: "flag for charging to floating mode"
-#  inverter_on
-#    name: "Switch On"
-#  dustproof_installed
-#    name: "flag  for  dustproof  installed"
+  charging_to_float:
+    name: "Charging to floating mode"
+  inverter_on:
+    name: "Switch On"
+  dustproof_installed:
+    name: "Dustproof installed"
   energy_solar_today:
     name: "Solar Energy Today"
   energy_solar_month:
@@ -207,65 +219,65 @@ solar_inverter:
   energy_inverter_total:
     name: "Inverter Energy This Total"
 
-## QPIRI Sensors
-##  grid_rating_voltage:
-##    name: "Grid Rating Voltage"
-##  grid_rating_current:
-##    name: "Grid Rating Current"
+  # QPIRI — only keys that exist in CONFIG_SCHEMA
   ac_output_rating_voltage:
     name: "AC Output Rating Voltage"
   ac_output_rating_frequency:
     name: "AC Output Rating Frequency"
-##  ac_output_rating_current:
-##    name: "AC Output Rating Current"
-##  ac_output_rating_apparent_power:
-##    name: "AC Output Apparent Power"
-##  ac_output_rating_active_power:
-##    name: "AC Output Active Power"
-
-##  battery_rating_voltage:
-##    name: "Battery Rating Voltage"
   battery_recharge_voltage:
     name: "Back to utility source"
-##  battery_undervoltage:
-##    name: "Battery Under Voltage"
-##  battery_bulk_voltage:
-##    name: "Battery Bulk Voltage"
-##  battery_float_voltage:
-##    name: "Battery Float Voltage"
-#  battery_type:
-#    name: "Battery Type"
   max_ac_charging_current:
     name: "Max AC Charging Current"
   max_charging_current:
     name: "Max Total Charging Current"
-##  input_voltage_range:
-##    name: "Input Voltage Range"
-  # Program 01 (QPIRI field 16 / POP): USB SUB SBU UtS
+  # Program 01 (QPIRI field 16 / POP00–03). HA: select.ttn_inverter_output_source_priority
+  # Options USB / SUB / SBU / UtS come from the component, not this YAML.
   output_source_priority:
     name: "Output Source Priority"
-
-#  charger_source_priority:
-#    name: "Charger Source Priority"
-##  parallel_max_number:
-##    name: "Max Parallel Units"
-##  machine_type:
-##    name: "Machine Type"
-##  topology:
-##    name: "Topology" 
-##  output_mode:
-##    name: "Output Mode"
   battery_redischarge_voltage:
     name: "Back to battery"
 
-##  pv_ok_condition:
-##    name: "PV OK Condition for Parallel"
-##  pv_power_balance:
-##    name: "PV Power Balance"
-##  max_charging_time_cv_stage:
-##    name: "Max Charging Time CV Stage"
-##  operation_logic:
-##    name: "Operation Logic"
-##  max_discharging_current:
-##    name: "Max Discharging Current"
-  
+  # Not in CONFIG_SCHEMA / to_code — leave commented. Do not enable until implemented.
+  #  charger_source_priority:          # program 16; C++ pointer only
+  #    name: "Charger Source Priority"
+  #  grid_rating_voltage:
+  #    name: "Grid Rating Voltage"
+  #  grid_rating_current:
+  #    name: "Grid Rating Current"
+  #  ac_output_rating_current:
+  #    name: "AC Output Rating Current"
+  #  ac_output_rating_apparent_power:
+  #    name: "AC Output Apparent Power"
+  #  ac_output_rating_active_power:
+  #    name: "AC Output Active Power"
+  #  battery_rating_voltage:
+  #    name: "Battery Rating Voltage"
+  #  battery_undervoltage:
+  #    name: "Battery Under Voltage"
+  #  battery_bulk_voltage:
+  #    name: "Battery Bulk Voltage"
+  #  battery_float_voltage:
+  #    name: "Battery Float Voltage"
+  #  battery_type:
+  #    name: "Battery Type"
+  #  input_voltage_range:
+  #    name: "Input Voltage Range"
+  #  parallel_max_number:
+  #    name: "Max Parallel Units"
+  #  machine_type:
+  #    name: "Machine Type"
+  #  topology:
+  #    name: "Topology"
+  #  output_mode:
+  #    name: "Output Mode"
+  #  pv_ok_condition:
+  #    name: "PV OK Condition for Parallel"
+  #  pv_power_balance:
+  #    name: "PV Power Balance"
+  #  max_charging_time_cv_stage:
+  #    name: "Max Charging Time CV Stage"
+  #  operation_logic:
+  #    name: "Operation Logic"
+  #  max_discharging_current:
+  #    name: "Max Discharging Current"
+ 

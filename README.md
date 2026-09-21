@@ -54,7 +54,8 @@ substitutions:
   name: ttn-inverter
   inv_id: ttn-inverter
   device_description: "Hybrid inverter via MAX communication"
-  external_components_source: github://srepenko/esphome-solar-inverter@main
+  # Use @work until schema API + program 01 land on main (PR #3). Then switch to @main.
+  external_components_source: github://srepenko/esphome-solar-inverter@work
 
 esphome:
   name: ${name}

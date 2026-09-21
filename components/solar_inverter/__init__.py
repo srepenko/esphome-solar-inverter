@@ -201,7 +201,7 @@ async def to_code(config):
         'device_mode_text': 'set_device_mode_text',
         'protocol_id': 'set_protocol_id_sensor',
         'serial_number': 'set_serial_number_sensor',
-        'eeprom_version_text': 'set_eeprom_version_text_sensor',
+        'eeprom_version_text': 'set_eeprom_version_text',
         'charging_mode_text': 'set_charging_mode_text_sensor',
         'warning_status_text': 'set_warning_status_text_sensor',
     }
@@ -217,12 +217,17 @@ async def to_code(config):
         'bus_voltage', 'battery_voltage', 'battery_charging_current',
         'battery_capacity', 'inverter_temp', 'pv_input_current', 'pv_input_voltage',
         'battery_voltage_from_scc', 'battery_discharge_current', 'pv_charging_power',
-        'fan_on_voltage_offset', 'charging_mode_sensor',
+        'fan_on_voltage_offset',
     ]
     for key in normal_sensors:
         if key in config:
             sens = await sensor.new_sensor(config[key])
             cg.add(getattr(var, f'set_{key}_sensor')(sens))
+
+    # Setter is set_charging_mode_sensor, not set_charging_mode_sensor_sensor.
+    if 'charging_mode_sensor' in config:
+        sens = await sensor.new_sensor(config['charging_mode_sensor'])
+        cg.add(var.set_charging_mode_sensor(sens))
 
     # binary sensors
     binary_sensors = [
@@ -309,7 +314,7 @@ async def to_code(config):
 
     # sensors
     sensors_qbeqi = {
-        "equalization_elapsed_time": "set_equalization_time",
+        "equalization_elapsed_time": "set_equalization_elapsed_time",
         "equalization_max_current": "set_equalization_max_current",
     }
     for key, setter in sensors_qbeqi.items():
