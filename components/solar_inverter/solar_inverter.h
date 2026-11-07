@@ -3,6 +3,7 @@
 // ============================
 
 #pragma once
+#include <cmath>
 
 #include "esphome/core/log.h"
 #include "esphome/core/component.h"
@@ -140,6 +141,12 @@ class SolarInverter : public uart::UARTDevice, public Component {
    void set_energy_inverter_month_sensor(sensor::Sensor *sens) { energy_inverter_month_sensor_ = sens; }
    void set_energy_inverter_year_sensor(sensor::Sensor *sens) { energy_inverter_year_sensor_ = sens; }
    void set_energy_inverter_total_sensor(sensor::Sensor *sens) { energy_inverter_total_sensor_ = sens; }
+   // мережа (за балансом) і АКБ: [0]=сьогодні [1]=місяць [2]=рік [3]=весь час
+   void set_energy_grid_sensor(int period, sensor::Sensor *sens) { energy_grid_sensors_[period] = sens; }
+   void set_energy_batt_charge_sensor(int period, sensor::Sensor *sens) { energy_bchg_sensors_[period] = sens; }
+   void set_energy_batt_discharge_sensor(int period, sensor::Sensor *sens) { energy_bdis_sensors_[period] = sens; }
+   void set_grid_power_sensor(sensor::Sensor *sens) { grid_power_sensor_ = sens; }
+   void set_battery_power_sensor(sensor::Sensor *sens) { battery_power_sensor_ = sens; }
 
   // Сеттеры для QBEQI 
   void set_equalization_enable(InverterSelect *s) { equalization_enable_ = s; }
@@ -360,6 +367,27 @@ class SolarInverter : public uart::UARTDevice, public Component {
   float accumulated_energy_inverter_year_{0};
   float accumulated_energy_inverter_total_{0.0f};
 
+  // Розширене сховище енергії (мережа, АКБ) + дата, до якої належать лічильники
+  struct EnergyExt {
+    float grid[4];
+    float bchg[4];
+    float bdis[4];
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+  };
+  EnergyExt ext_{};
+  ESPPreferenceObject pref_energy_ext_;
+  sensor::Sensor *energy_grid_sensors_[4]{nullptr, nullptr, nullptr, nullptr};
+  sensor::Sensor *energy_bchg_sensors_[4]{nullptr, nullptr, nullptr, nullptr};
+  sensor::Sensor *energy_bdis_sensors_[4]{nullptr, nullptr, nullptr, nullptr};
+  sensor::Sensor *grid_power_sensor_{nullptr};
+  sensor::Sensor *battery_power_sensor_{nullptr};
+  float last_grid_power_{0}, last_battery_power_{0};
+  bool date_checked_{false};
+  void reset_periods_(bool day, bool month, bool year);
+  static float sensor_or_zero_(sensor::Sensor *s) { return (s != nullptr && !std::isnan(s->state)) ? s->state : 0.0f; }
+
   int last_day_{-1};
   int last_month_{-1};
   int last_year_{-1};
@@ -455,7 +483,7 @@ class SolarInverter : public uart::UARTDevice, public Component {
   uint8_t energy_publish_index_{0};
   uint32_t last_energy_update_ms_{0};
   uint32_t last_energy_save_ms_{0};
-  uint32_t last_energy_day_{0}, last_energy_month_{0}, last_energy_year_{0};
+  // (застаріле) дата тепер зберігається в ext_ і переживає перезавантаження
   uint32_t last_energy_loop_ms_{0};
 
   //  ─── Таймауты / лимиты loop() (2400 baud MAX/TTN clone) ───

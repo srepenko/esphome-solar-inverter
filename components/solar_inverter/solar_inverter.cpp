@@ -64,6 +64,7 @@ void SolarInverter::setup() {
   this->pref_inverter_month_ = global_preferences->make_preference<float>(0x6005);
   this->pref_solar_today_ = global_preferences->make_preference<float>(0x6006);
   this->pref_inverter_today_ = global_preferences->make_preference<float>(0x6007);
+  this->pref_energy_ext_ = global_preferences->make_preference<EnergyExt>(0x6010);
 
   load_energy_from_eeprom_();
 
@@ -199,22 +200,25 @@ void SolarInverter::update_energy_history_() {
 
   if (energy_publish_index_ == 0) {
     last_energy_update_ms_ = now;
-    Date current_date = this->get_current_date();
-
-    if (current_date.day != last_energy_day_) {
-      last_energy_day_ = current_date.day;
-      accumulated_energy_solar_today_ = 0.0f;
-      accumulated_energy_inverter_today_ = 0.0f;
-    }
-    if (current_date.month != last_energy_month_) {
-      last_energy_month_ = current_date.month;
-      accumulated_energy_solar_month_ = 0.0f;
-      accumulated_energy_inverter_month_ = 0.0f;
-    }
-    if (current_date.year != last_energy_year_) {
-      last_energy_year_ = current_date.year;
-      accumulated_energy_solar_year_ = 0.0f;
-      accumulated_energy_inverter_year_ = 0.0f;
+    const Date cd = this->get_current_date();
+    // До синхронізації часу (1970) періоди не чіпаємо — інакше хибне «нова доба» після кожного старту.
+    if (cd.year >= 2024) {
+      if (this->ext_.year == 0) {
+        // перший запуск / міграція зі старої версії: лічильники вважаємо поточними
+        this->ext_.year = cd.year; this->ext_.month = cd.month; this->ext_.day = cd.day;
+        this->schedule_energy_save_();
+      } else {
+        const bool new_year = cd.year != this->ext_.year;
+        const bool new_month = new_year || cd.month != this->ext_.month;
+        const bool new_day = new_month || cd.day != this->ext_.day;
+        if (new_day) {
+          ESP_LOGI(TAG, "Нова доба%s%s: скидання лічильників (було %04u-%02u-%02u)", new_month ? ", місяць" : "",
+                   new_year ? ", рік" : "", this->ext_.year, this->ext_.month, this->ext_.day);
+          this->reset_periods_(new_day, new_month, new_year);
+          this->ext_.year = cd.year; this->ext_.month = cd.month; this->ext_.day = cd.day;
+          this->schedule_energy_save_();
+        }
+      }
     }
 
     if (last_energy_loop_ms_ == 0) {
@@ -244,6 +248,26 @@ void SolarInverter::update_energy_history_() {
         accumulated_energy_inverter_month_ += energy_kwh;
         accumulated_energy_inverter_year_ += energy_kwh;
         accumulated_energy_inverter_total_ += energy_kwh;
+      }
+    }
+
+    {
+      // АКБ: + заряд, − розряд; мережа — за балансом (дім + заряд − сонце − розряд), якщо мережа є
+      const float bv = sensor_or_zero_(this->battery_voltage_sensor_);
+      const float bp = bv * (sensor_or_zero_(this->battery_charging_current_sensor_) -
+                             sensor_or_zero_(this->battery_discharge_current_sensor_));
+      const float load = std::max(sensor_or_zero_(this->output_active_power_sensor_), 0.0f);
+      const float pv = std::max(sensor_or_zero_(this->pv_charging_power_sensor_), 0.0f);
+      const float gv = sensor_or_zero_(this->grid_voltage_sensor_);
+      const float gp = gv > 100.0f ? std::max(load + std::max(bp, 0.0f) - pv - std::max(-bp, 0.0f), 0.0f) : 0.0f;
+      this->last_grid_power_ = gp;
+      this->last_battery_power_ = bp;
+      for (int i = 0; i < 4; i++) {
+        this->ext_.grid[i] += gp / 1000.0f * dt_hours;
+        if (bp > 0)
+          this->ext_.bchg[i] += bp / 1000.0f * dt_hours;
+        else
+          this->ext_.bdis[i] += -bp / 1000.0f * dt_hours;
       }
     }
 
@@ -290,12 +314,29 @@ void SolarInverter::update_energy_history_() {
       if (energy_inverter_total_sensor_)
         energy_inverter_total_sensor_->publish_state(accumulated_energy_inverter_total_);
       break;
-    default:
-      energy_publish_index_ = 0;
-      return;
+    default: {
+      // 9..20 — мережа/заряд/розряд × 4 періоди, 21 — потужність мережі, 22 — потужність АКБ
+      const int k = energy_publish_index_ - 9;
+      if (k >= 0 && k < 12) {
+        const int grp = k / 4, per = k % 4;
+        sensor::Sensor *sens = grp == 0 ? energy_grid_sensors_[per] : (grp == 1 ? energy_bchg_sensors_[per] : energy_bdis_sensors_[per]);
+        const float *arr = grp == 0 ? ext_.grid : (grp == 1 ? ext_.bchg : ext_.bdis);
+        if (sens)
+          sens->publish_state(arr[per]);
+      } else if (k == 12) {
+        if (grid_power_sensor_)
+          grid_power_sensor_->publish_state(last_grid_power_);
+      } else if (k == 13) {
+        if (battery_power_sensor_)
+          battery_power_sensor_->publish_state(last_battery_power_);
+      } else {
+        energy_publish_index_ = 0;
+        return;
+      }
+    }
   }
   energy_publish_index_++;
-  if (energy_publish_index_ > 8)
+  if (energy_publish_index_ > 22)
     energy_publish_index_ = 0;
 }
 
@@ -309,7 +350,10 @@ void SolarInverter::load_energy_from_eeprom_() {
   pref_inverter_month_.load(&accumulated_energy_inverter_month_);
   pref_solar_today_.load(&accumulated_energy_solar_today_);
   pref_inverter_today_.load(&accumulated_energy_inverter_today_);
-  ESP_LOGI(TAG, "Завантажено з NVS: total S=%.2f, I=%.2f", accumulated_energy_solar_total_, accumulated_energy_inverter_total_);
+  if (!pref_energy_ext_.load(&ext_))
+    ext_ = EnergyExt{};  // нове сховище: дата 0 → буде встановлена при першому валідному часі
+  ESP_LOGI(TAG, "Завантажено з NVS: total S=%.2f, I=%.2f, мережа %.2f; дата лічильників %04u-%02u-%02u",
+           accumulated_energy_solar_total_, accumulated_energy_inverter_total_, ext_.grid[3], ext_.year, ext_.month, ext_.day);
 }
 
 
@@ -353,21 +397,42 @@ void SolarInverter::save_energy_step_() {
     case 7:
       pref_inverter_today_.save(&accumulated_energy_inverter_today_);
       break;
+    case 8:
+      pref_energy_ext_.save(&ext_);
+      break;
     default:
       energy_save_pending_ = false;
       energy_save_index_ = 0;
       return;
   }
   energy_save_index_++;
-  if (energy_save_index_ < 8) {
+  if (energy_save_index_ < 9) {
     this->set_timeout("energy_save_step", ENERGY_SAVE_STEP_MS, [this]() { this->save_energy_step_(); });
   } else {
     energy_save_pending_ = false;
     energy_save_index_ = 0;
-    ESP_LOGD(TAG, "Energy prefs saved (8 stepped NVS writes)");
+    ESP_LOGD(TAG, "Energy prefs saved (9 stepped NVS writes)");
   }
 }
 
+
+void SolarInverter::reset_periods_(bool day, bool month, bool year) {
+  if (day) {
+    accumulated_energy_solar_today_ = 0.0f;
+    accumulated_energy_inverter_today_ = 0.0f;
+    ext_.grid[0] = ext_.bchg[0] = ext_.bdis[0] = 0.0f;
+  }
+  if (month) {
+    accumulated_energy_solar_month_ = 0.0f;
+    accumulated_energy_inverter_month_ = 0.0f;
+    ext_.grid[1] = ext_.bchg[1] = ext_.bdis[1] = 0.0f;
+  }
+  if (year) {
+    accumulated_energy_solar_year_ = 0.0f;
+    accumulated_energy_inverter_year_ = 0.0f;
+    ext_.grid[2] = ext_.bchg[2] = ext_.bdis[2] = 0.0f;
+  }
+}
 
 Date SolarInverter::get_current_date() {
   time_t now = ::time(nullptr);

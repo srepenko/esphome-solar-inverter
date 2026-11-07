@@ -171,6 +171,49 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional('energy_inverter_total'): sensor.sensor_schema(
         unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:calendar',
         state_class='total_increasing', device_class='energy'),
+    # мережа (за балансом) та АКБ
+    cv.Optional('energy_grid_today'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:transmission-tower',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_grid_month'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:transmission-tower',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_grid_year'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:transmission-tower',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_grid_total'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:transmission-tower',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_charge_today'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-up',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_charge_month'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-up',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_charge_year'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-up',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_charge_total'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-up',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_discharge_today'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-down',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_discharge_month'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-down',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_discharge_year'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-down',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('energy_battery_discharge_total'): sensor.sensor_schema(
+        unit_of_measurement='kWh', accuracy_decimals=2, icon='mdi:battery-arrow-down',
+        state_class='total_increasing', device_class='energy'),
+    cv.Optional('grid_power'): sensor.sensor_schema(
+        unit_of_measurement='W', accuracy_decimals=0, icon='mdi:transmission-tower',
+        state_class='measurement', device_class='power'),
+    cv.Optional('battery_power'): sensor.sensor_schema(
+        unit_of_measurement='W', accuracy_decimals=0, icon='mdi:battery-charging',
+        state_class='measurement', device_class='power'),
 
     #QPIWS
     cv.Optional('warning_status_text'): text_sensor.text_sensor_schema(),
@@ -257,6 +300,19 @@ async def to_code(config):
         if key in config:
             sens = await sensor.new_sensor(config[key])
             cg.add(getattr(var, setter)(sens))
+
+    # мережа / АКБ: енергія за періоди (0=сьогодні, 1=місяць, 2=рік, 3=весь час)
+    for grp, setter in (('grid', 'set_energy_grid_sensor'), ('battery_charge', 'set_energy_batt_charge_sensor'),
+                        ('battery_discharge', 'set_energy_batt_discharge_sensor')):
+        for idx, per in enumerate(('today', 'month', 'year', 'total')):
+            key = f'energy_{grp}_{per}'
+            if key in config:
+                sens = await sensor.new_sensor(config[key])
+                cg.add(getattr(var, setter)(idx, sens))
+    if 'grid_power' in config:
+        cg.add(var.set_grid_power_sensor(await sensor.new_sensor(config['grid_power'])))
+    if 'battery_power' in config:
+        cg.add(var.set_battery_power_sensor(await sensor.new_sensor(config['battery_power'])))
 
     # text sensors
     text_sensors = {
