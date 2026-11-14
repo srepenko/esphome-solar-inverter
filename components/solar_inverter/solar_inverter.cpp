@@ -1325,6 +1325,16 @@ bool SolarInverter::is_safe_set_probe_(const std::string &cmd) {
   // POP## / PCP## with exactly two digits (Voltronic NN). No free-form / PE/PD.
   // POP §3.12 documents 00/01/02; higher NN (e.g. POP03) are probe-only — never bind UtS select.
   // PCP §3.10 = charger priority (program 16).
+  // PBCV / PBDV (поріг переходу на мережу / повернення на АКБ, програми 12/13): число nn, nnn або nn.n.
+  // Для пошуку формату відсоткових порогів при літієвій АКБ зі зв'язком (LIL); невірне значення дає NAK.
+  if (cmd.size() >= 6 && cmd.size() <= 9 && (cmd.compare(0, 4, "PBCV") == 0 || cmd.compare(0, 4, "PBDV") == 0)) {
+    int dots = 0;
+    for (size_t i = 4; i < cmd.size(); i++) {
+      if (cmd[i] == '.') { if (++dots > 1 || i == 4 || i + 1 == cmd.size()) return false; continue; }
+      if (!std::isdigit(static_cast<unsigned char>(cmd[i]))) return false;
+    }
+    return true;
+  }
   if (cmd.size() != 5)
     return false;
   if (!(cmd.compare(0, 3, "POP") == 0 || cmd.compare(0, 3, "PCP") == 0))
