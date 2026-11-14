@@ -1116,31 +1116,46 @@ void SolarInverter::setup_qflag_switches() {
 }
 
 std::string SolarInverter::decode_qpiws_(const std::string &bits) {
-  static const char* warning_messages[36] = {
-    "Inverter fault / Overcharge current",      // 0 = a0
-    "Battery over-temperature",                 // 1
-    "Battery under-voltage",                    // 2
-    "Battery over-voltage",                     // 3
-    "PV input over-voltage",                    // 4
-    "Battery temp too low",                     // 5
-    "Battery temp too high",                    // 6
-    "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved",
-    "Reserved", "Reserved", "Reserved", "Reserved",                       // 7..19
-    "PV low loss warning",                      // 20
-    "PV derating (high PV)",                    // 21
-    "Derating (high temp)",                     // 22
-    "Battery temperature low warning",          // 23
-    "Battery disconnect",                       // 24
-    "Reserved", "Reserved", "Reserved", "Reserved", "Reserved",          // 25..29
-    "Battery low warning",                      // 30
-    "Load short circuit fault",                 // 31
-    "DSP communication fault"                   // 32
-    // Bits 33, 34, 35 — можно также добавить при необходимости
+  // QPIWS по специфікації PI30 (a0…a31). nullptr — зарезервовано: такі біти не є тривогою
+  // (на багатьох прошивках a0 завжди 1 — раніше це помилково показувалось як «Inverter fault»).
+  static const char *const warning_messages[36] = {
+    nullptr,                          // a0  Reserved
+    "Inverter fault",                 // a1
+    "Bus over",                       // a2
+    "Bus under",                      // a3
+    "Bus soft fail",                  // a4
+    "Line fail",                      // a5
+    "OPV short",                      // a6
+    "Inverter voltage too low",       // a7
+    "Inverter voltage too high",      // a8
+    "Over temperature",               // a9
+    "Fan locked",                     // a10
+    "Battery voltage high",           // a11
+    "Battery low alarm",              // a12
+    nullptr,                          // a13 Reserved
+    "Battery under shutdown",         // a14
+    nullptr,                          // a15 Reserved
+    "Overload",                       // a16
+    "EEPROM fault",                   // a17
+    "Inverter over current",          // a18
+    "Inverter soft fail",             // a19
+    "Self test fail",                 // a20
+    "OP DC voltage over",             // a21
+    "Battery open",                   // a22
+    "Current sensor fail",            // a23
+    "Battery short",                  // a24
+    "Power limit",                    // a25
+    "PV voltage high",                // a26
+    "MPPT overload fault",            // a27
+    "MPPT overload warning",          // a28
+    "Battery too low to charge",      // a29
+    nullptr, nullptr,                 // a30, a31 Reserved
+    nullptr, nullptr, nullptr, nullptr  // a32…a35 (розширення)
   };
 
   std::vector<std::string> active_warnings;
   for (size_t i = 0; i < bits.size() && i < 36; ++i) {
-    if (bits[i] == '1') {
+    if (bits[i] == '1' && warning_messages[i] != nullptr) {
       active_warnings.push_back(warning_messages[i]);
     }
   }
