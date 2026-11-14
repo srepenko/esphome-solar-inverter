@@ -1308,6 +1308,16 @@ bool SolarInverter::is_safe_inquiry_(const std::string &cmd) {
     if (cmd == s)
       return true;
   }
+  // Будь-який інший Q-запит (лише читання): Q + 1..9 латинських великих літер/цифр.
+  // Команди запису (P*, M*, F*, V*, PE/PD…) сюди не проходять.
+  if (cmd.size() >= 2 && cmd.size() <= 10 && cmd[0] == 'Q') {
+    for (size_t i = 1; i < cmd.size(); i++) {
+      const char c = cmd[i];
+      if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')))
+        return false;
+    }
+    return true;
+  }
   return false;
 }
 
