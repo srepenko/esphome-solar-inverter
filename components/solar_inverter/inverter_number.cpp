@@ -2,6 +2,7 @@
 #include "solar_inverter.h"
 #include <cstdio>  // sprintf
 #include <string>
+#include <cmath>
 
 namespace esphome {
 namespace solar_inverter {
@@ -16,6 +17,12 @@ namespace solar_inverter {
           return;
         }
       
+        if (this->parent_ != nullptr && this->parent_->soc_thresholds() && this->parent_->is_soc_threshold_number(this)) {
+          ESP_LOGW("inverter_number", "АКБ літієва зі зв'язком: пороги 12/13 задаються на екрані у %% SOC — команду %s не надіслано",
+                   this->cmd_prefix_.c_str());
+          this->publish_state(NAN);
+          return;
+        }
         if (this->parent_ != nullptr) {
           if (this->format_.empty()) {
             ESP_LOGW("inverter_number", "Пустой формат — команда не отправлена");

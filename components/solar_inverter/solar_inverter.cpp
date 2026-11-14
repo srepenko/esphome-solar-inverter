@@ -956,7 +956,14 @@ void SolarInverter::publish_next_qpiri_chunk_() {
     case 5:  publish_number(ac_output_apparent_power_, 5); break;      // HHHH   AC output rating apparent power VA
     case 6:  publish_number(ac_output_active_power_, 6); break;        // IIII   AC output rating active power W
     case 7:  publish_number(battery_rating_voltage_, 7); break;        // JJ.J   Battery rating voltage V
-    case 8:  publish_number(battery_recharge_voltage_, 8); break;      // KK.K   (12) Battery re-charge voltage V
+    case 8:  // (12) поріг переходу на мережу; при літії зі зв'язком — у % лише на екрані
+             if (12 < this->qpiri_parts_.size()) {
+               int bt = atoi(this->qpiri_parts_[12].c_str());
+               this->soc_thresholds_ = bt >= 3 && bt <= 6;
+             }
+             if (this->soc_thresholds_ && battery_recharge_voltage_ != nullptr) battery_recharge_voltage_->publish_state(NAN);
+             else publish_number(battery_recharge_voltage_, 8);
+             break;      // KK.K   (12) Battery re-charge voltage V
     case 9:  publish_number(battery_undervoltage_, 9); break;          // JJ.J   (29) Battery under voltage V
     case 10: publish_number(battery_bulk_voltage_, 10); break;         // KK.K   (26) Battery bulk voltage V
     case 11: publish_number(battery_float_voltage_, 11); break;        // LL.L   (27) Battery float voltage V
@@ -970,7 +977,9 @@ void SolarInverter::publish_next_qpiri_chunk_() {
     case 19: publish_select(machine_type_, 19); break;                 // SS     Machine type 00: Grid tie; 01: Off Grid; 10: Hybrid
     case 20: publish_select(topology_, 20); break;                     // T      Topology 0: transformerless 1: transformer
     case 21: publish_select(output_mode_, 21); break;                  // U      Output mode 
-    case 22: publish_number(battery_redischarge_voltage_, 22); break;  // VV.V   (13) Battery re-discharge voltage
+    case 22: if (this->soc_thresholds_ && battery_redischarge_voltage_ != nullptr) battery_redischarge_voltage_->publish_state(NAN);
+             else publish_number(battery_redischarge_voltage_, 22);
+             break;  // VV.V   (13) Battery re-discharge voltage
     case 23: publish_select(pv_ok_condition_, 23); break;              // W      PV OK condition for parallel
     case 24: publish_select(pv_power_balance_, 24); break;             // X      PV power balance 
     case 25: publish_sensor(neizvestno_, 25); break;                   // X.XX   ()

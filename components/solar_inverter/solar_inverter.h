@@ -247,7 +247,8 @@ class SolarInverter : public uart::UARTDevice, public Component {
   InverterSelect *machine_type_{nullptr};                   // SS     enum
   InverterSelect *topology_{nullptr};                       // T      enum
   InverterSelect *output_mode_{nullptr};                    // U      enum
-  InverterNumber *battery_redischarge_voltage_{nullptr};    // VV.V   V
+  InverterNumber *battery_redischarge_voltage_{nullptr};
+  bool soc_thresholds_{false};    // VV.V   V
   InverterSelect *pv_ok_condition_{nullptr};                // W      enum
   InverterSelect *pv_power_balance_{nullptr};               // X      enum
   sensor::Sensor *neizvestno_{nullptr};                     // X.XX   ?
@@ -275,6 +276,12 @@ class SolarInverter : public uart::UARTDevice, public Component {
   void set_max_ac_charging_current(InverterNumber *s) { max_ac_charging_current_ = s; }
   void set_max_charging_current(InverterNumber *s) { max_charging_current_ = s; }
   void set_battery_redischarge_voltage(InverterNumber *s) { battery_redischarge_voltage_ = s; }
+  // Літієва АКБ зі зв'язком (тип 3..6: LIB/LIC/LIP/LIL): програми 12/13 задаються на екрані у % SOC,
+  // по RS232 їх не прочитати й не задати (PBCV/PBDV пишуть невикористовувані пороги у вольтах).
+  bool soc_thresholds() const { return this->soc_thresholds_; }
+  bool is_soc_threshold_number(const InverterNumber *n) const {
+    return n != nullptr && (n == this->battery_recharge_voltage_ || n == this->battery_redischarge_voltage_);
+  }
   void set_grid_tie_current(InverterNumber *s) { grid_tie_current_ = s; }
   void set_operation_logic(InverterNumber *s) { operation_logic_ = s; }
 
